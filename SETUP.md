@@ -1,51 +1,52 @@
-# Job Scraper — Paste This To Claude Code
+# Job Scraper — Feed This File To Any Coding Agent
 
-This file sets you up with a private GitHub Actions workflow that scrapes your target companies' job boards on a schedule and pushes you a phone notification (and optionally an email) the moment a matching role posts. Cost: $0. Maintenance: none.
+Paste this entire file into a coding agent (Claude Code, Cursor, Windsurf, Aider, Cline, ChatGPT with code tools, or anything similar that can run shell commands and edit files). It will set you up with a private GitHub Actions workflow that scrapes your target companies' job boards on a schedule and pushes you a phone notification (and optionally an email) the moment a matching role posts.
 
-Reference implementation: https://github.com/BenjaminHolderbein/gha-job-scraper
+Cost: **$0**. Maintenance: **none**.
+
+Reference implementation you're replicating: https://github.com/BenjaminHolderbein/gha-job-scraper
 
 ---
 
-## Before you start
+## Human: do this first
 
 Install once on your machine:
 
-- [Claude Code](https://claude.ai/code) — the CLI
-- [`gh`](https://cli.github.com/) — GitHub CLI, then `gh auth login` (scopes: `repo`, `workflow`)
+- Your coding agent of choice (must be able to run shell commands + edit files in a directory)
+- [`gh`](https://cli.github.com/) — GitHub CLI. Run `gh auth login` with scopes `repo` + `workflow`.
 - [`uv`](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [ntfy](https://ntfy.sh) mobile app — iOS or Android (for push notifications)
 
 You'll also need:
 
-- A Google account with 2FA enabled (if you want email notifications — optional)
-- ~5 minutes of back-and-forth with Claude
+- A Google account with 2FA enabled (only if you want email notifications — optional)
+- ~5 minutes of back-and-forth with the agent
 
----
+**Then:**
 
-## How to use this file
+1. Create an empty folder: `mkdir ~/job-scraper && cd ~/job-scraper`
+2. Start your coding agent in that folder.
+3. Paste the rest of this file (everything below the `---AGENT INSTRUCTIONS---` line) as your first message.
+4. Answer the agent's questions. Done.
 
-1. Create a new empty folder: `mkdir ~/job-scraper && cd ~/job-scraper`
-2. Open Claude Code in that folder: `claude`
-3. Paste everything below the `---PROMPT---` line into the Claude prompt
-4. Answer Claude's questions when asked
-5. Done
+---AGENT INSTRUCTIONS---
 
----PROMPT---
+You are going to build a GitHub Actions job scraper for me, modeled on https://github.com/BenjaminHolderbein/gha-job-scraper. Follow the steps below precisely. You have authorization to create files, create a private GitHub repo on my account (via `gh`), set GitHub secrets, and push commits. Do not ask me to confirm each sub-step — confirm scope once and execute the whole scope.
 
-You are going to build me a GitHub Actions job scraper, modeled on https://github.com/BenjaminHolderbein/gha-job-scraper. Follow the steps below precisely. You have authorization to create files, create a private GitHub repo on my account (via `gh`), set GitHub secrets, and push commits. Do not ask me to confirm each sub-step — confirm scope once and execute the whole scope.
+If you support spawning parallel sub-agents or sub-tasks, use that capability in Step 4 to save context; otherwise build the modules sequentially.
 
 ## Step 1 — Gather requirements (ask all at once, with recommendations)
 
 Ask me these questions in a single batched message, each with a sensible default recommendation I can accept with "yes" or override:
 
-1. **Target companies** (pick 2–4 to start): the companies whose careers pages you want scraped. I'll also ask about their ATS in Step 2.
+1. **Target companies** (pick 2–4 to start): the companies whose careers pages you want scraped. You'll also need to discover their ATS in Step 2.
 2. **Role titles / keywords** to match (e.g., "Software Engineer", "Product Designer", "Data Scientist"). Case-insensitive substring match on job title.
 3. **Seniority filter** — which of these should be *rejected*? Default reject set: `Senior, Sr., Staff, Principal, Lead, Director, Manager, Head of, VP, Vice President, Intern`. I can add or remove (e.g., new grads may want to keep "Intern"; senior engineers may want to drop "Senior").
-4. **Locations to accept** — list cities/regions. Remote handling: should I accept US-remote? EU-remote? Ask me.
+4. **Locations to accept** — list cities/regions. Remote handling: should you accept US-remote? EU-remote? Ask me.
 5. **Notification channels**:
-   - **Push (ntfy.sh)** — free, no account. Recommend: yes. I'll auto-generate a random topic name.
-   - **Email (Gmail SMTP)** — requires you to generate a Gmail App Password (https://myaccount.google.com/apppasswords, needs 2FA on the account). Recommend: yes, but optional — push alone works fine.
-6. **Your email address** (for the email channel, if enabled).
+   - **Push (ntfy.sh)** — free, no account. Recommend: yes. You'll auto-generate a random topic name.
+   - **Email (Gmail SMTP)** — requires me to generate a Gmail App Password (https://myaccount.google.com/apppasswords, needs 2FA on the account). Recommend: yes, but optional — push alone works fine.
+6. **My email address** (for the email channel, if enabled).
 7. **Repo name** — default `job-scraper`, private.
 8. **Schedule** — default 4×/day on US weekdays at 8am/11am/2pm/5pm PT. Accept or customize.
 
@@ -66,7 +67,7 @@ For each target company, determine which Applicant Tracking System (ATS) hosts t
 
 1. Guess the slug (usually the company name, lowercased, sometimes with/without "inc", "hq", or "careers"). Try a few variants.
 2. For each guess, `curl` the 4 endpoints above. An HTTP 200 with a non-empty jobs array wins.
-3. If all 4 fail, fetch the company's public careers page HTML with `curl` and grep for identifying markers (`greenhouse.io`, `lever.co`, `ashbyhq`, `smartrecruiters`, `ashby_jid=` in links, etc.). Use a web search if needed.
+3. If all 4 fail, fetch the company's public careers page HTML with `curl` and grep for identifying markers (`greenhouse.io`, `lever.co`, `ashbyhq`, `smartrecruiters`, `ashby_jid=` in links, etc.). Use a web search if your tooling allows it.
 4. If the company uses **Workday, iCIMS, Taleo, BrassRing**, or another enterprise ATS with no public JSON: tell me, and recommend either (a) dropping that company from the list, or (b) scraping via Playwright as a fallback (much more fragile — not recommended for v1).
 
 Report the ATS + slug + sample job count for each company back to me before writing code.
@@ -171,16 +172,18 @@ jobs:
           git push
 ```
 
-## Step 4 — Parallelize with sub-agents
+## Step 4 — Parallelize if you can
 
-To save context, spawn 4 sub-agents in parallel, each owning one slice:
+If your runtime supports spawning parallel sub-agents or sub-tasks, use it — 4 slices, saves context and wall-clock time:
 
-1. **Scaffold agent** — `pyproject.toml`, `.gitignore`, `README.md`, `seen_jobs.json` = `{}`, empty `__init__.py` files, the workflow YAML.
-2. **Sources agent** — `scraper/sources.py` + `tests/test_sources.py` + real-sample fixtures (fetch once via `curl`, trim to 2 jobs each).
-3. **Filters agent** — `scraper/filters.py` + `tests/test_filters.py` (≥5 tests).
-4. **State + notify agent** — `scraper/state.py`, `scraper/notify.py`, and their tests.
+1. **Scaffold** — `pyproject.toml`, `.gitignore`, `README.md`, `seen_jobs.json` = `{}`, empty `__init__.py` files, the workflow YAML.
+2. **Sources** — `scraper/sources.py` + `tests/test_sources.py` + real-sample fixtures (fetch once via `curl`, trim to 2 jobs each).
+3. **Filters** — `scraper/filters.py` + `tests/test_filters.py` (≥5 tests).
+4. **State + notify** — `scraper/state.py`, `scraper/notify.py`, and their tests.
 
-After they finish, write `scraper/main.py` yourself (small orchestrator — ~40 lines).
+Then write `scraper/main.py` yourself after the sub-tasks finish — it's a small orchestrator (~40 lines).
+
+If you can't parallelize, build the modules sequentially in the same order.
 
 ## Step 5 — Verify locally
 
@@ -229,4 +232,4 @@ Summarize:
 - **Nothing in the reference repo is secret.** You're building your own private version with your own secrets.
 - **The ntfy topic IS the access credential** — anyone who knows it can read your notifications. Treat like a password, don't commit it.
 - **GHA scheduled workflows disable themselves after 60 days of repo inactivity.** The `seen_jobs.json` commit each run keeps the repo active — no keepalive hack needed.
-- **Want to add more companies later?** Add another `fetch_<company>()` in `scraper/sources.py` and include it in `fetch_all()`. Ask Claude to do it.
+- **Want to add more companies later?** Add another `fetch_<company>()` in `scraper/sources.py` and include it in `fetch_all()`. Ask your agent to do it.
