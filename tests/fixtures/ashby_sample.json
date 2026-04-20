@@ -1,0 +1,74 @@
+{
+  "jobs": [
+    {
+      "id": "6b647e66-495d-49c5-bd8e-ca87a4d68e08",
+      "title": "Handshake AI Fellow Experience Specialist, Contract",
+      "department": "Global Support",
+      "team": "Global Support",
+      "employmentType": "Contract",
+      "location": "Remote (USA)",
+      "secondaryLocations": [],
+      "publishedAt": "2025-09-18T20:04:13.894+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+        "postalAddress": {
+          "addressRegion": "Remote",
+          "addressCountry": "United States",
+          "addressLocality": "Remote"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/handshake/6b647e66-495d-49c5-bd8e-ca87a4d68e08",
+      "applyUrl": "https://jobs.ashbyhq.com/handshake/6b647e66-495d-49c5-bd8e-ca87a4d68e08/application",
+      "descriptionHtml": "<p>truncated</p>",
+      "descriptionPlain": "truncated"
+    },
+    {
+      "id": "117385d2-2578-45ba-a7b6-417ec7b48166",
+      "title": "Senior Cloud Engineer",
+      "department": "Engineering",
+      "team": "Engineering",
+      "employmentType": "FullTime",
+      "location": "Remote (USA)",
+      "secondaryLocations": [
+        {
+          "location": "San Francisco, CA",
+          "address": {
+            "postalAddress": {
+              "addressRegion": "California",
+              "addressCountry": "United States",
+              "addressLocality": "San Francisco"
+            }
+          }
+        },
+        {
+          "location": "New York, NY",
+          "address": {
+            "postalAddress": {
+              "addressRegion": "New York",
+              "addressCountry": "United States",
+              "addressLocality": "New York City"
+            }
+          }
+        }
+      ],
+      "publishedAt": "2026-03-27T20:43:31.257+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "addressRegion": "Remote",
+          "addressCountry": "United States",
+          "addressLocality": "Remote"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/handshake/117385d2-2578-45ba-a7b6-417ec7b48166",
+      "applyUrl": "https://jobs.ashbyhq.com/handshake/117385d2-2578-45ba-a7b6-417ec7b48166/application",
+      "descriptionHtml": "<p>truncated</p>",
+      "descriptionPlain": "truncated"
+    }
+  ],
+  "apiVersion": "1"
+}
