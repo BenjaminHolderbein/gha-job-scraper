@@ -40,7 +40,7 @@ class _FakeSession:
         self._url_to_data = url_to_data
         self.calls: list[str] = []
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, params=None):
         self.calls.append(url)
         if url not in self._url_to_data:
             raise AssertionError(f"unexpected URL: {url}")
@@ -165,6 +165,9 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
 
     monkeypatch.setattr(sources, "fetch_handshake", boom)
     monkeypatch.setattr(sources, "fetch_zoox", ok)
+    monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_google", lambda: [])
 
     result = sources.fetch_all()
     assert result == sentinel_jobs
@@ -173,8 +176,194 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
 def test_fetch_all_both_sources_succeed(monkeypatch):
     monkeypatch.setattr(sources, "fetch_handshake", lambda session=None: [{"id": "handshake:a"}])
     monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
+    monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [{"id": "aws:c"}])
+    monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
+    monkeypatch.setattr(sources, "fetch_google", lambda: [{"id": "google:e"}])
     result = sources.fetch_all()
-    assert [j["id"] for j in result] == ["handshake:a", "zoox:b"]
+    assert [j["id"] for j in result] == ["handshake:a", "zoox:b", "aws:c", "zap:d", "google:e"]
+
+
+class _AwsFakeSession:
+    """Session that returns a sequence of canned responses for amazon.jobs.
+
+    Any call to ``sources.AWS_SEARCH_URL`` pops the next queued payload.
+    Calls to other URLs return an empty-jobs payload so higher-level loops
+    terminate immediately.
+    """
+
+    def __init__(self, queue):
+        self._queue = list(queue)
+        self.calls: list[dict] = []
+
+    def get(self, url, timeout=None, params=None):
+        self.calls.append({"url": url, "params": dict(params or {})})
+        if url == sources.AWS_SEARCH_URL:
+            if not self._queue:
+                return _FakeResponse({"jobs": [], "hits": 0})
+            return _FakeResponse(self._queue.pop(0))
+        # Any unexpected URL — return empty to keep loops short.
+        return _FakeResponse({"jobs": [], "hits": 0})
+
+
+def _empty_aws_page():
+    return {"jobs": [], "hits": 0}
+
+
+def test_aws_normalizes_fixture():
+    payload = _load_fixture("aws_sample.json")
+    # Serve the same payload once; subsequent queries for other locations
+    # come back empty so the loop terminates.
+    session = _AwsFakeSession([payload])
+
+    jobs = sources.fetch_aws(session=session)
+
+    # Only the AWS job should survive the company filter (fixture has 1 AWS
+    # + 1 retail/finance role).
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert set(j.keys()) == REQUIRED_KEYS
+    assert j["id"].startswith("aws:")
+    assert j["company"] == "AWS"
+    # posted_date "April 20, 2026" -> ISO 2026-04-20T00:00:00+00:00
+    assert j["posted_at"] == "2026-04-20T00:00:00+00:00"
+    assert j["url"].startswith("https://www.amazon.jobs/en/jobs/")
+    assert j["remote"] is False
+
+
+def test_aws_filters_non_aws_company():
+    payload = {
+        "hits": 2,
+        "jobs": [
+            {
+                "id_icims": "111",
+                "title": "AWS SDE",
+                "job_category": "Software Development",
+                "location": "US, CA, San Francisco",
+                "posted_date": "April 1, 2026",
+                "job_path": "/en/jobs/111/aws-sde",
+                "company_name": "Amazon Web Services, Inc.",
+                "business_category": "aws",
+            },
+            {
+                "id_icims": "222",
+                "title": "Warehouse Associate",
+                "job_category": "Fulfillment & Operations Management",
+                "location": "US, CA, San Francisco",
+                "posted_date": "April 1, 2026",
+                "job_path": "/en/jobs/222/warehouse",
+                "company_name": "Amazon.com Services LLC",
+                "business_category": "customer-fulfillment",
+            },
+        ],
+    }
+    session = _AwsFakeSession([payload])
+    jobs = sources.fetch_aws(session=session)
+    assert [j["id"] for j in jobs] == ["aws:111"]
+
+
+def test_aws_paginates():
+    # First page full (100 jobs) -> fetcher requests a second page.
+    # Second page short (<100) -> fetcher stops for this loc_query.
+    # All jobs after that come from empty pages (subsequent loc_query loops).
+    def _mk_job(iid):
+        return {
+            "id_icims": str(iid),
+            "title": "AWS SDE",
+            "job_category": "Software Development",
+            "location": "US, CA, San Francisco",
+            "posted_date": "April 1, 2026",
+            "job_path": f"/en/jobs/{iid}/aws-sde",
+            "company_name": "Amazon Web Services, Inc.",
+            "business_category": "aws",
+        }
+
+    page1 = {"hits": 150, "jobs": [_mk_job(i) for i in range(100)]}
+    page2 = {"hits": 150, "jobs": [_mk_job(i) for i in range(100, 150)]}
+    session = _AwsFakeSession([page1, page2])
+
+    jobs = sources.fetch_aws(session=session)
+
+    # 150 unique AWS jobs from the first loc_query. Subsequent loc_queries
+    # see empty pages and contribute nothing.
+    assert len(jobs) == 150
+    # Exactly 2 calls consumed the queued pages; remaining loc_queries each
+    # issued 1 call that returned empty. 6 loc_queries -> 2 + 5 = 7 calls.
+    aws_calls = [c for c in session.calls if c["url"] == sources.AWS_SEARCH_URL]
+    assert len(aws_calls) == 7
+    # Second call should be offset=100 for the first loc_query.
+    assert aws_calls[0]["params"]["offset"] == 0
+    assert aws_calls[1]["params"]["offset"] == 100
+    # Third call resets offset to 0 (new loc_query).
+    assert aws_calls[2]["params"]["offset"] == 0
+
+
+def test_aws_handles_missing_posted_date():
+    payload = {
+        "hits": 2,
+        "jobs": [
+            {
+                "id_icims": "333",
+                "title": "AWS SDE",
+                "job_category": "Software Development",
+                "location": "US, CA, San Francisco",
+                "posted_date": "",
+                "job_path": "/en/jobs/333/aws-sde",
+                "company_name": "Amazon Web Services, Inc.",
+                "business_category": "aws",
+            },
+            {
+                "id_icims": "444",
+                "title": "AWS SDE",
+                "job_category": "Software Development",
+                "location": "US, CA, San Francisco",
+                "posted_date": "not a real date",
+                "job_path": "/en/jobs/444/aws-sde",
+                "company_name": "Amazon Web Services, Inc.",
+                "business_category": "aws",
+            },
+        ],
+    }
+    session = _AwsFakeSession([payload])
+    jobs = sources.fetch_aws(session=session)
+    assert len(jobs) == 2
+    for j in jobs:
+        assert j["posted_at"] == ""
+
+
+def test_zap_surgical_normalizes_fixture():
+    payload = _load_fixture("zap_sample.json")
+    session = _FakeSession({sources.ZAP_SURGICAL_URL: payload})
+
+    jobs = sources.fetch_zap_surgical(session=session)
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert set(j.keys()) == REQUIRED_KEYS
+    assert j["id"].startswith("zap:")
+    assert j["company"] == "Zap Surgical"
+    raw = payload["content"][0]
+    assert j["title"] == raw["name"]
+    assert j["department"] == raw["department"]["label"]
+    # city, region concatenation
+    assert j["location"] == "Sunnyvale, CA"
+    assert j["url"] == raw["ref"]
+    assert j["posted_at"] == raw["releasedDate"]
+    assert j["remote"] is False
+
+
+def test_zap_surgical_empty_response():
+    session = _FakeSession(
+        {
+            sources.ZAP_SURGICAL_URL: {
+                "offset": 0,
+                "limit": 100,
+                "totalFound": 0,
+                "content": [],
+            }
+        }
+    )
+    jobs = sources.fetch_zap_surgical(session=session)
+    assert jobs == []
 
 
 def test_fetch_handshake_raises_on_http_error():
