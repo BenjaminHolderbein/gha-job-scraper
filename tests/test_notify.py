@@ -91,6 +91,13 @@ def test_send_ntfy_posts_expected_payload(monkeypatch):
     assert headers["Tags"] == "briefcase"
     assert headers["Click"] == "https://jobs.ashbyhq.com/handshake/abc"
 
+    # Actions header provides in-app tappable buttons (since URLs in the body
+    # text aren't reliably auto-linkified by the ntfy mobile app).
+    actions = headers["Actions"]
+    assert "view, Open role 1, https://jobs.ashbyhq.com/handshake/abc" in actions
+    assert "view, Open role 2, https://jobs.ashbyhq.com/handshake/def" in actions
+    assert "view, Open role 3, https://jobs.lever.co/zoox/xyz" in actions
+
     # All header values must latin-1 encode cleanly
     for v in headers.values():
         v.encode("latin-1")
@@ -101,6 +108,10 @@ def test_send_ntfy_posts_expected_payload(monkeypatch):
     assert "- ML Engineer" in body
     assert "- Applied Scientist" in body
     assert "- Research Engineer" in body
+    # URLs must appear in body so ntfy app auto-linkifies them
+    assert "https://jobs.ashbyhq.com/handshake/abc" in body
+    assert "https://jobs.ashbyhq.com/handshake/def" in body
+    assert "https://jobs.lever.co/zoox/xyz" in body
 
 
 def test_send_ntfy_priority_high_when_3_or_more(monkeypatch):

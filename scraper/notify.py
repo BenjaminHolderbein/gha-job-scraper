@@ -80,18 +80,43 @@ def send_email(new_jobs: list[dict]) -> None:
         smtp.send_message(msg)
 
 
+def _build_ntfy_actions(jobs: list[dict]) -> str:
+    """Build the ntfy Actions header — up to 3 tappable `view` buttons.
+
+    ntfy's notification-list / detail view doesn't auto-linkify URLs in the
+    body text, so explicit action buttons are the reliable way to give the
+    user a clickable handoff to the job page from inside the app.
+    """
+    parts: list[str] = []
+    for i, job in enumerate(jobs[:3], start=1):
+        url = job.get("url", "")
+        if not url:
+            continue
+        label = f"Open role {i}" if len(jobs) > 1 else "Open role"
+        # ntfy action format: `view, <label>, <url>, clear=true`
+        # Labels are ASCII-only and free of commas/semicolons to avoid the
+        # header-parser escape maze; we use generic labels for this reason.
+        parts.append(f"view, {label}, {url}, clear=true")
+    return "; ".join(parts)
+
+
 def _build_ntfy_body(jobs: list[dict]) -> str:
     counts = [(company, len(group)) for company, group in _group_by_company(jobs)]
     summary = " · ".join(f"{company}: {count}" for company, count in counts)
 
-    titles = [job["title"] for job in jobs]
-    shown = titles[:5]
-    remaining = len(titles) - len(shown)
-    title_lines = [f"- {t}" for t in shown]
+    shown = jobs[:5]
+    remaining = len(jobs) - len(shown)
+    # One line per job: title then URL on its own line. The ntfy mobile app
+    # auto-linkifies URLs in the body so they're tappable from the message list.
+    lines: list[str] = []
+    for job in shown:
+        lines.append(f"- {job['title']}")
+        if job.get("url"):
+            lines.append(f"  {job['url']}")
     if remaining > 0:
-        title_lines.append(f"+{remaining} more")
+        lines.append(f"+{remaining} more")
 
-    return summary + "\n\n" + "\n".join(title_lines)
+    return summary + "\n\n" + "\n".join(lines)
 
 
 def send_ntfy(new_jobs: list[dict]) -> None:
@@ -106,6 +131,7 @@ def send_ntfy(new_jobs: list[dict]) -> None:
         "Priority": "high" if n >= 3 else "default",
         "Tags": "briefcase",
         "Click": new_jobs[0]["url"],
+        "Actions": _build_ntfy_actions(new_jobs),
     }
     body = _build_ntfy_body(new_jobs)
 
