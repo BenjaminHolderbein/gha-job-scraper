@@ -19,6 +19,23 @@ jobs:
         run: uv run playwright install chromium --with-deps
       - name: Run live tests
         run: uv run pytest -m live -v
+      - name: Notify ntfy on failure
+        if: failure()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC unset; skipping ntfy push"
+            exit 0
+          fi
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -fsSL \
+            -H "Title: gha-job-scraper: live source check failed" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -H "Click: $run_url" \
+            -d "An upstream source may have changed shape or gone offline. See run for details." \
+            "https://ntfy.sh/${NTFY_TOPIC}"
       - name: Open issue on failure
         if: failure()
         uses: actions/github-script@v7
