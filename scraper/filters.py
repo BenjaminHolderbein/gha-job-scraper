@@ -100,6 +100,7 @@ COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
     "Zoox": True,
     "Zap Surgical": True,
     "Google": True,
+    "Uber": True,
     "AWS": False,
 }
 

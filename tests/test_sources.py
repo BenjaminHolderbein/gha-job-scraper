@@ -142,6 +142,102 @@ def test_lever_remote_workplace_type_maps_to_true():
     assert jobs[0]["id"] == "zoox:xyz"
 
 
+class _UberFakeSession:
+    """Session stand-in for Uber's POST endpoint.
+
+    Returns the same canned payload for every POST regardless of the query
+    body (the production code issues one POST per UBER_QUERIES entry — for
+    fixture tests we want each call to see the fixture).
+    """
+
+    def __init__(self, payload):
+        self._payload = payload
+        self.calls: list[dict] = []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.calls.append({"url": url, "json": json, "headers": headers})
+        if url != sources.UBER_URL:
+            raise AssertionError(f"unexpected URL: {url}")
+        return _FakeResponse(self._payload)
+
+
+def test_uber_normalizes_fixture():
+    payload = _load_fixture("uber_sample.json")
+    session = _UberFakeSession(payload)
+
+    jobs = sources.fetch_uber(session=session)
+
+    # Uber issues one POST per query; results dedupe across queries by id, so
+    # the fixture's 4 unique ids should appear exactly once in the output.
+    assert len(jobs) == 4
+    assert len(session.calls) == len(sources.UBER_QUERIES)
+    for call in session.calls:
+        assert call["headers"]["x-csrf-token"]
+        assert call["json"]["params"]["page"] == 0
+        assert isinstance(call["json"]["params"]["query"], str)
+
+    for job in jobs:
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["company"] == "Uber"
+        assert job["id"].startswith("uber:")
+        assert job["url"].startswith("https://www.uber.com/global/en/careers/list/")
+        assert job["remote"] is False
+
+    by_id = {j["id"]: j for j in jobs}
+    # Multi-location US role: "City, Region" join across allLocations.
+    sf_role = by_id["uber:158248"]
+    assert "San Francisco, California" in sf_role["location"]
+    assert "Sunnyvale, California" in sf_role["location"]
+    # Non-US role: country name appended so filters can reject foreign locations.
+    nl_role = by_id["uber:300002"]
+    assert "Netherlands" in nl_role["location"]
+
+
+def test_uber_dedupes_across_queries():
+    """A job appearing in multiple query responses is emitted once."""
+    payload = {
+        "data": {
+            "results": [
+                {
+                    "id": 999,
+                    "title": "ML Engineer",
+                    "department": "Engineering",
+                    "location": {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"},
+                    "creationDate": "2026-04-01T00:00:00.000Z",
+                    "allLocations": [
+                        {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"}
+                    ],
+                }
+            ]
+        }
+    }
+    session = _UberFakeSession(payload)
+    jobs = sources.fetch_uber(session=session)
+    assert len(jobs) == 1
+    # But the source still issued one POST per query (dedupe is in-process).
+    assert len(session.calls) == len(sources.UBER_QUERIES)
+
+
+def test_uber_handles_missing_alllocations():
+    """Falls back to the singular ``location`` field when allLocations missing."""
+    payload = {
+        "data": {
+            "results": [
+                {
+                    "id": 1,
+                    "title": "ML Engineer",
+                    "department": "Engineering",
+                    "location": {"country": "USA", "region": "California", "city": "Palo Alto", "countryName": "United States"},
+                    "creationDate": "",
+                }
+            ]
+        }
+    }
+    jobs = sources.fetch_uber(session=_UberFakeSession(payload))
+    assert len(jobs) == 1
+    assert jobs[0]["location"] == "Palo Alto, California"
+
+
 def test_fetch_all_continues_on_source_failure(monkeypatch):
     """If one source raises, the other's jobs are still returned."""
     sentinel_jobs = [
@@ -167,6 +263,7 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
     monkeypatch.setattr(sources, "fetch_zoox", ok)
     monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_google", lambda: [])
 
     result = sources.fetch_all()
@@ -178,9 +275,12 @@ def test_fetch_all_both_sources_succeed(monkeypatch):
     monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
     monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [{"id": "aws:c"}])
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
+    monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [{"id": "uber:f"}])
     monkeypatch.setattr(sources, "fetch_google", lambda: [{"id": "google:e"}])
     result = sources.fetch_all()
-    assert [j["id"] for j in result] == ["handshake:a", "zoox:b", "aws:c", "zap:d", "google:e"]
+    assert [j["id"] for j in result] == [
+        "handshake:a", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e"
+    ]
 
 
 class _AwsFakeSession:

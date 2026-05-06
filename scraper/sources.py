@@ -27,7 +27,31 @@ AWS_SEARCH_URL = "https://www.amazon.jobs/en/search.json"
 ZAP_SURGICAL_URL = (
     "https://api.smartrecruiters.com/v1/companies/zap-surgical/postings"
 )
+UBER_URL = "https://www.uber.com/api/loadSearchJobsResults"
 TIMEOUT = 30
+
+# --- Uber careers ------------------------------------------------------------
+# Uber's public search endpoint requires an x-csrf-token header but does not
+# validate its value. The API ignores ``limit`` and returns all matching jobs
+# in a single response, so we issue one POST per query and dedupe by id.
+UBER_QUERIES = [
+    "machine learning",
+    "data scientist",
+    "research scientist",
+    "research engineer",
+    "applied scientist",
+    "deep learning",
+    "computer vision",
+]
+UBER_HEADERS = {
+    "Content-Type": "application/json",
+    "x-csrf-token": "x",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
 
 # --- Google careers (Playwright-based) ---------------------------------------
 GOOGLE_CAREERS_BASE = "https://www.google.com/about/careers/applications/"
@@ -182,6 +206,45 @@ def _normalize_zap(job: dict) -> dict:
     }
 
 
+def _format_uber_location(job: dict) -> str:
+    """Build a single 'City, Region; City, Region' location string from allLocations.
+
+    Falls back to the singular ``location`` field if ``allLocations`` is empty.
+    """
+    locs = job.get("allLocations") or []
+    if not locs:
+        single = job.get("location")
+        if single:
+            locs = [single]
+    parts: list[str] = []
+    for loc in locs:
+        city = (loc.get("city") or "").strip()
+        region = (loc.get("region") or "").strip()
+        country = (loc.get("countryName") or loc.get("country") or "").strip()
+        # For non-US, include country name so location filters can detect
+        # foreign postings; for US, "City, Region" is enough.
+        if country and country not in ("USA", "United States"):
+            piece = ", ".join(p for p in (city, region, country) if p)
+        else:
+            piece = ", ".join(p for p in (city, region) if p)
+        if piece:
+            parts.append(piece)
+    return "; ".join(parts)
+
+
+def _normalize_uber(job: dict) -> dict:
+    return {
+        "id": f"uber:{job['id']}",
+        "company": "Uber",
+        "title": job.get("title", "") or "",
+        "department": job.get("department", "") or "",
+        "location": _format_uber_location(job),
+        "remote": False,
+        "url": f"https://www.uber.com/global/en/careers/list/{job['id']}/",
+        "posted_at": job.get("creationDate", "") or "",
+    }
+
+
 def fetch_handshake(session: requests.Session | None = None) -> list[dict]:
     """Fetch Handshake jobs from Ashby and normalize."""
     resp = _get(session, HANDSHAKE_URL)
@@ -258,6 +321,30 @@ def fetch_zap_surgical(session: requests.Session | None = None) -> list[dict]:
         if isinstance(total, int) and offset >= total:
             break
     return results
+
+
+def fetch_uber(session: requests.Session | None = None) -> list[dict]:
+    """Fetch Uber jobs from the public careers search API across ML queries.
+
+    Issues one POST per query in :data:`UBER_QUERIES`, dedupes by job id, and
+    returns normalized job dicts. The API ignores the ``limit`` field, so a
+    single page per query is sufficient. ``location`` filtering is left to
+    :mod:`scraper.filters` since Uber returns ``allLocations`` per posting.
+    """
+    s = session if session is not None else requests
+    by_id: dict[int, dict] = {}
+    for query in UBER_QUERIES:
+        body = {"params": {"query": query, "limit": 1000, "page": 0}}
+        resp = s.post(UBER_URL, json=body, headers=UBER_HEADERS, timeout=TIMEOUT)
+        resp.raise_for_status()
+        payload = resp.json()
+        results = ((payload.get("data") or {}).get("results")) or []
+        for job in results:
+            jid = job.get("id")
+            if jid is None or jid in by_id:
+                continue
+            by_id[jid] = _normalize_uber(job)
+    return list(by_id.values())
 
 
 def _parse_google_job_card(card: dict) -> dict | None:
@@ -503,6 +590,7 @@ def fetch_all() -> list[dict]:
         ("zoox", fetch_zoox),
         ("aws", fetch_aws),
         ("zap_surgical", fetch_zap_surgical),
+        ("uber", fetch_uber),
         ("google", fetch_google),
     ):
         try:
