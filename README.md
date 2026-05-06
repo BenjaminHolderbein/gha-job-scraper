@@ -1,28 +1,18 @@
 # gha-job-scraper
 
-Scheduled GitHub Actions workflow that scrapes multiple companies' careers pages for ML/AI/DS individual-contributor roles and notifies on new matches via email and/or mobile push.
+Scheduled GitHub Actions workflow that scrapes companies' careers pages for ML/AI/DS individual-contributor roles in the SF Bay Area (and US-remote, where the company is BA-headquartered) and notifies on new matches via email and/or mobile push.
 
 ## Sources
 
-| Company      | ATS / method      | Endpoint                                                         |
-|--------------|-------------------|------------------------------------------------------------------|
-| Handshake    | Ashby (JSON)      | `api.ashbyhq.com/posting-api/job-board/handshake`                |
-| Zoox         | Lever (JSON)      | `api.lever.co/v0/postings/zoox?mode=json`                        |
-| AWS          | amazon.jobs (JSON, undocumented) | `www.amazon.jobs/en/search.json`                    |
-| Zap Surgical | SmartRecruiters (JSON)           | `api.smartrecruiters.com/v1/companies/zap-surgical/postings` |
-| Google       | Playwright (headless Chromium)   | `www.google.com/about/careers/applications/jobs/results`   |
-
-Alphabet subsidiaries (YouTube, DeepMind) are captured incidentally via the Google careers board and matched when they post Bay Area roles.
+Each source is a `fetch_<company>()` function in [`scraper/sources.py`](scraper/sources.py) that returns a normalized job dict. `fetch_all()` is the canonical list of currently active sources. Most use a public ATS JSON endpoint (Ashby, Lever, SmartRecruiters, amazon.jobs); JS-rendered career pages use Playwright (headless Chromium).
 
 ## Filtering
 
-**Title patterns** (regex, word-order flexible): accepts Machine Learning / ML / Deep Learning / AI / Computer Vision / NLP / Perception combined with Engineer / Scientist / Researcher; canonical titles (Applied Scientist, Research Scientist/Engineer, Data Scientist); and abbreviations (MLE, AIE).
+See [`scraper/filters.py`](scraper/filters.py). Three predicates, all must pass:
 
-**Seniority reject:** Senior, Staff, Principal, Lead, Director, Manager, VP, Head of, Intern, Student.
-
-**Location / remote policy:**
-- Physical Bay Area (24 cities including SF, Palo Alto, Mountain View, Foster City, San Jose, Sunnyvale, Berkeley, Oakland, etc.) → accept.
-- Remote roles → accept only when the company's HQ is in the Bay Area. AWS and other non-BA-HQ companies have remote roles rejected, Bay-local roles accepted.
+- **Title** matches an ML/AI/DS IC pattern (regex-based, word-order flexible) — see `TITLE_PATTERNS`.
+- **Seniority** does not match a senior/managerial token — see `SENIORITY_REJECT`.
+- **Location** is acceptable per `matches_location()`: physical Bay Area always wins; remote roles accepted only when the company's HQ is in the Bay Area (`COMPANY_HQ_IN_BAY_AREA`).
 
 ## Run locally
 
@@ -53,10 +43,19 @@ At least one channel (email or ntfy) must be configured.
 
 Runs 4 times per day on US-business-hours weekdays (8am, 11am, 2pm, 5pm PT, Mon-Fri) via GitHub Actions cron. Also triggerable manually via `workflow_dispatch`. After each run, the workflow commits the updated `seen_jobs.json` dedup state back to `main` with `[skip ci]`, which also keeps the schedule alive past GitHub's 60-day inactivity shutoff.
 
+## Tests
+
+```bash
+uv run pytest                 # offline tests, default
+uv run pytest -m live         # live tests against real upstream APIs
+```
+
+The `live` suite verifies each source's real endpoint still returns well-formed jobs. It runs daily via the [`Live source check`](.github/workflows/live-check.yml) workflow, which opens (or comments on) a GitHub issue labeled `live-check-failure` when a source breaks.
+
 ## Adding a company
 
 1. Identify the ATS (try Greenhouse, Lever, Ashby, SmartRecruiters JSON endpoints first; fall back to Playwright for JS-rendered sites).
 2. Add a `fetch_<company>()` in `scraper/sources.py` that returns the normalized shape `{id, company, title, department, location, remote, url, posted_at}`.
 3. Add an entry to `COMPANY_HQ_IN_BAY_AREA` in `scraper/filters.py` (`True` if HQ is Bay Area and remote roles should be accepted; `False` to restrict to physical Bay Area only).
 4. Wire into `fetch_all()` in `sources.py`.
-5. Add fixture + tests.
+5. Add an offline fixture + test in `tests/test_sources.py`, and a `@pytest.mark.live` test in `tests/test_live_sources.py`.
