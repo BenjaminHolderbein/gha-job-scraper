@@ -1,0 +1,26 @@
+{
+  "error": null,
+  "hits": 10000,
+  "jobs": [
+    {
+      "id_icims": "10396874",
+      "title": "Senior Engagement Manager, AWS Professional Services",
+      "job_category": "Project/Program/Product Management--Technical",
+      "location": "US, TX, Dallas",
+      "posted_date": "April 20, 2026",
+      "job_path": "/en/jobs/10396874/senior-engagement-manager-aws-professional-services",
+      "company_name": "Amazon Web Services, Inc.",
+      "business_category": "aws"
+    },
+    {
+      "id_icims": "10385977",
+      "title": "Senior Financial Analyst, WW Operations IPAT Planning",
+      "job_category": "Finance & Accounting",
+      "location": "US, NY, New York",
+      "posted_date": "April  8, 2026",
+      "job_path": "/en/jobs/10385977/senior-financial-analyst-ww-operations-ipat-planning",
+      "company_name": "Amazon.com Services LLC",
+      "business_category": "finance"
+    }
+  ]
+}

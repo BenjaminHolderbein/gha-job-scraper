@@ -1,0 +1,28 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 1,
+  "content": [
+    {
+      "id": "abc-123-def",
+      "name": "Senior Robotics Software Engineer",
+      "uuid": "abc-123-def",
+      "jobAdId": "xyz-789",
+      "ref": "https://jobs.smartrecruiters.com/ZAP/abc-123-def-senior-robotics-software-engineer",
+      "releasedDate": "2026-03-20T00:00:00.000Z",
+      "createdOn": "2026-03-19T18:15:00.000Z",
+      "department": {"label": "Engineering"},
+      "location": {
+        "city": "Sunnyvale",
+        "region": "CA",
+        "country": "us",
+        "remote": false
+      },
+      "industry": {"label": "Medical Devices"},
+      "typeOfEmployment": {"label": "Full-time"},
+      "experienceLevel": {"label": "Mid-Senior"},
+      "customField": [],
+      "company": {"name": "Zap Surgical"}
+    }
+  ]
+}

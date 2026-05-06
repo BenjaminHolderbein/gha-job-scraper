@@ -1,0 +1,74 @@
+{
+  "status": "success",
+  "data": {
+    "totalResults": {"low": 4, "high": 0, "unsigned": false},
+    "results": [
+      {
+        "id": 158248,
+        "title": "Machine Learning Engineer II",
+        "department": "Engineering",
+        "team": "Machine Learning",
+        "location": {
+          "country": "USA",
+          "region": "California",
+          "city": "San Francisco",
+          "countryName": "United States"
+        },
+        "creationDate": "2026-04-09T19:17:00.000Z",
+        "allLocations": [
+          {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"},
+          {"country": "USA", "region": "California", "city": "Sunnyvale", "countryName": "United States"}
+        ]
+      },
+      {
+        "id": 200001,
+        "title": "Data Scientist",
+        "department": "Data Science",
+        "team": "Marketplace",
+        "location": {
+          "country": "USA",
+          "region": "California",
+          "city": "Sunnyvale",
+          "countryName": "United States"
+        },
+        "creationDate": "2026-03-15T10:00:00.000Z",
+        "allLocations": [
+          {"country": "USA", "region": "California", "city": "Sunnyvale", "countryName": "United States"}
+        ]
+      },
+      {
+        "id": 300002,
+        "title": "Senior Machine Learning Engineer",
+        "department": "Engineering",
+        "team": "Maps",
+        "location": {
+          "country": "NLD",
+          "region": "",
+          "city": "Amsterdam",
+          "countryName": "Netherlands"
+        },
+        "creationDate": "2026-04-01T08:00:00.000Z",
+        "allLocations": [
+          {"country": "NLD", "region": "", "city": "Amsterdam", "countryName": "Netherlands"}
+        ]
+      },
+      {
+        "id": 400003,
+        "title": "Applied Scientist",
+        "department": "Engineering",
+        "team": "Pricing",
+        "location": {
+          "country": "USA",
+          "region": "New York",
+          "city": "New York",
+          "countryName": "United States"
+        },
+        "creationDate": "2026-02-20T12:00:00.000Z",
+        "allLocations": [
+          {"country": "USA", "region": "New York", "city": "New York", "countryName": "United States"},
+          {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"}
+        ]
+      }
+    ]
+  }
+}

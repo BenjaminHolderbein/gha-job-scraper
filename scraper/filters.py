@@ -5,25 +5,34 @@ A job dict has the shape:
      "location": str, "remote": bool, "url": str, "posted_at": str}
 
 `matches(job)` returns True iff the job passes all filters:
-  - title contains at least one TITLE_KEYWORDS entry
+  - title matches at least one TITLE_PATTERNS regex
   - title does NOT contain any SENIORITY_REJECT entry
-  - location is in-range (SF Bay Area) OR is an acceptable US remote
+  - location is acceptable given the company's HQ (see `matches_location`)
 """
 
 from __future__ import annotations
 
+import logging
 import re
 
-TITLE_KEYWORDS: list[str] = [
-    "Machine Learning Engineer",
-    "ML Engineer",
-    "MLE",
-    "AI Engineer",
-    "AIE",
-    "Data Scientist",
-    "Applied Scientist",
-    "Research Scientist",
-    "Research Engineer",
+log = logging.getLogger(__name__)
+
+TITLE_PATTERNS: list[re.Pattern] = [
+    # ML/AI/CV/NLP role with engineer/scientist/researcher noun — word-order flexible
+    re.compile(
+        r"\b(machine learning|ml|deep learning|dl|artificial intelligence|ai|computer vision|cv|nlp|perception)\b"
+        r".*\b(engineer|scientist|researcher)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(engineer|scientist|researcher)\b"
+        r".*\b(machine learning|ml|deep learning|dl|computer vision|cv|nlp|perception)\b",
+        re.IGNORECASE,
+    ),
+    # Canonical standalone titles
+    re.compile(r"\b(applied scientist|research scientist|research engineer|data scientist)\b", re.IGNORECASE),
+    # Abbreviation-only roles
+    re.compile(r"\b(mle|aie)\b", re.IGNORECASE),
 ]
 
 SENIORITY_REJECT: list[str] = [
@@ -38,6 +47,7 @@ SENIORITY_REJECT: list[str] = [
     "VP",
     "Vice President",
     "Intern",
+    "Student",
 ]
 
 LOCATION_ALLOW: list[str] = [
@@ -49,6 +59,22 @@ LOCATION_ALLOW: list[str] = [
     "Foster City",
     "Redwood City",
     "South San Francisco",
+    "San Jose",
+    "Santa Clara",
+    "Sunnyvale",
+    "Cupertino",
+    "Menlo Park",
+    "Berkeley",
+    "Oakland",
+    "Emeryville",
+    "Hayward",
+    "Fremont",
+    "Milpitas",
+    "Burlingame",
+    "Millbrae",
+    "San Mateo",
+    "Daly City",
+    "Alameda",
 ]
 
 US_REMOTE_TOKENS: list[str] = [
@@ -56,12 +82,29 @@ US_REMOTE_TOKENS: list[str] = [
     "Remote (US)",
     "Remote, US",
     "Remote US",
+    "Remote - United States",
+    "Remote (United States)",
     "United States",
     "USA",
+    "US Remote",
+    "Remote-US",
+    "Anywhere in US",
+    "Anywhere in the US",
+    "Remote, USA",
 ]
 
-# Locations that, combined with remote=True, we treat as ambiguous-US remote
-# (accepted — we'd rather false-positive than miss a remote role).
+# Company HQ lookup — True if HQ is in Bay Area (we accept remote roles for these).
+# False → we only accept physical Bay Area roles, reject remote.
+COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
+    "Handshake": True,
+    "Zoox": True,
+    "Zap Surgical": True,
+    "Google": True,
+    "Uber": True,
+    "AWS": False,
+}
+
+# Locations that, combined with remote=True, we treat as ambiguous-US remote.
 _AMBIGUOUS_REMOTE_LOCATIONS = {"", "remote", "remote - anywhere"}
 
 # Clearly non-US remote markers: if a remote job's location contains any of
@@ -97,10 +140,10 @@ def _ci_contains_any(haystack: str, needles: list[str]) -> bool:
 
 
 def matches_title(title: str) -> bool:
-    """True if the title contains at least one target keyword."""
+    """True if the title matches any TITLE_PATTERNS regex."""
     if not title:
         return False
-    return _ci_contains_any(title, TITLE_KEYWORDS)
+    return any(p.search(title) for p in TITLE_PATTERNS)
 
 
 def is_senior(title: str) -> bool:
@@ -125,6 +168,7 @@ def is_senior(title: str) -> bool:
         "vp",
         "vice president",
         "intern",
+        "student",
     }
     for token in word_boundary_tokens:
         if re.search(rf"\b{re.escape(token)}\b", lowered):
@@ -147,41 +191,56 @@ def is_senior(title: str) -> bool:
     return False
 
 
-def matches_location(location: str, remote: bool) -> bool:
+def _company_hq_in_bay_area(company: str) -> bool:
+    """Return True if company HQ is in the Bay Area.
+
+    Unknown companies default to False (conservative) and emit a warning.
+    """
+    if not company:
+        log.warning("matches_location: empty company, defaulting to non-BA HQ")
+        return False
+    if company not in COMPANY_HQ_IN_BAY_AREA:
+        log.warning("matches_location: unknown company %r, defaulting to non-BA HQ", company)
+        return False
+    return COMPANY_HQ_IN_BAY_AREA[company]
+
+
+def matches_location(location: str, remote: bool, company: str) -> bool:
     """True if the location is acceptable.
 
     Acceptance rules:
-      1. Location contains any LOCATION_ALLOW token (SF Bay Area).
-      2. Location contains any US_REMOTE_TOKENS entry.
-      3. remote=True AND location is empty / generic "Remote" / "Remote - Anywhere"
-         → ambiguous; accept (false positive preferred over miss).
-      4. Otherwise, if remote=True but location clearly names a non-US region,
-         reject.
+      1. Physical Bay Area match → accept, regardless of company HQ.
+      2. Explicit US-remote token in location → accept IFF company HQ is in Bay Area.
+      3. remote=True + ambiguous location ("", "Remote", "Remote - Anywhere") → accept
+         IFF company HQ is in Bay Area.
+      4. remote=True + clearly non-US location → reject.
+      5. Otherwise → reject.
     """
     loc = (location or "").strip()
     loc_lower = loc.lower()
 
-    # Rule 1: in-range physical location.
+    # Rule 1: physical Bay Area match wins regardless of company.
     if _ci_contains_any(loc, LOCATION_ALLOW):
         return True
 
-    # Rule 2: US remote tokens (accept regardless of the `remote` flag — the
-    # string itself is explicit).
+    hq_in_ba = _company_hq_in_bay_area(company)
+
+    # Rule 2: explicit US-remote token.
     if _ci_contains_any(loc, US_REMOTE_TOKENS):
-        return True
+        return hq_in_ba
 
     if remote:
-        # Rule 3: ambiguous-remote → accept.
-        if loc_lower in _AMBIGUOUS_REMOTE_LOCATIONS:
-            return True
-        # Rule 4: explicit non-US remote → reject.
+        # Rule 4: explicit non-US location → reject.
         if any(hint in loc_lower for hint in _NON_US_REMOTE_HINTS):
             return False
+        # Rule 3: ambiguous-remote → accept iff BA HQ.
+        if loc_lower in _AMBIGUOUS_REMOTE_LOCATIONS:
+            return hq_in_ba
         # Remote flag set but location is some other city/string not in our
         # allowlist and not obviously non-US: be conservative and reject.
         return False
 
-    # Not remote and not in our allowlist.
+    # Rule 5: not remote and not in allowlist.
     return False
 
 
@@ -190,11 +249,12 @@ def matches(job: dict) -> bool:
     title = job.get("title", "") or ""
     location = job.get("location", "") or ""
     remote = bool(job.get("remote", False))
+    company = job.get("company", "") or ""
 
     if not matches_title(title):
         return False
     if is_senior(title):
         return False
-    if not matches_location(location, remote):
+    if not matches_location(location, remote, company):
         return False
     return True
