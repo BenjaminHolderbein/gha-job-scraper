@@ -30,6 +30,10 @@ ZAP_SURGICAL_URL = (
 UBER_URL = "https://www.uber.com/api/loadSearchJobsResults"
 TIMEOUT = 30
 
+# Sources to skip in ``fetch_all()`` and the live-test suite. Add a source's
+# registry name here to disable without removing its code or tests.
+DISABLED_SOURCES: set[str] = {"google"}
+
 # --- Uber careers ------------------------------------------------------------
 # Uber's public search endpoint requires an x-csrf-token header but does not
 # validate its value. The API ignores ``limit`` and returns all matching jobs
@@ -593,6 +597,9 @@ def fetch_all() -> list[dict]:
         ("uber", fetch_uber),
         ("google", fetch_google),
     ):
+        if name in DISABLED_SOURCES:
+            log.info("source %s disabled; skipping", name)
+            continue
         try:
             jobs = fn()
         except Exception:

@@ -271,6 +271,7 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
 
 
 def test_fetch_all_both_sources_succeed(monkeypatch):
+    monkeypatch.setattr(sources, "DISABLED_SOURCES", set())
     monkeypatch.setattr(sources, "fetch_handshake", lambda session=None: [{"id": "handshake:a"}])
     monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
     monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [{"id": "aws:c"}])
@@ -281,6 +282,24 @@ def test_fetch_all_both_sources_succeed(monkeypatch):
     assert [j["id"] for j in result] == [
         "handshake:a", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e"
     ]
+
+
+def test_fetch_all_skips_disabled_sources(monkeypatch):
+    """Names listed in DISABLED_SOURCES are skipped without invoking the fetcher."""
+    monkeypatch.setattr(sources, "DISABLED_SOURCES", {"google", "aws"})
+    monkeypatch.setattr(sources, "fetch_handshake", lambda session=None: [{"id": "handshake:a"}])
+    monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
+    monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
+    monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [{"id": "uber:f"}])
+
+    def _should_not_be_called(*a, **kw):
+        raise AssertionError("disabled fetcher was invoked")
+
+    monkeypatch.setattr(sources, "fetch_aws", _should_not_be_called)
+    monkeypatch.setattr(sources, "fetch_google", _should_not_be_called)
+
+    result = sources.fetch_all()
+    assert [j["id"] for j in result] == ["handshake:a", "zoox:b", "zap:d", "uber:f"]
 
 
 class _AwsFakeSession:

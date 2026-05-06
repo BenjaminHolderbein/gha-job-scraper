@@ -44,23 +44,32 @@ def _assert_well_formed(jobs: list[dict], expected_company: str, id_prefix: str)
         assert isinstance(job["url"], str)
 
 
+def _skip_if_disabled(name: str) -> None:
+    if name in sources.DISABLED_SOURCES:
+        pytest.skip(f"{name}: disabled in sources.DISABLED_SOURCES")
+
+
 @pytest.mark.live
 def test_handshake_live():
+    _skip_if_disabled("handshake")
     _assert_well_formed(sources.fetch_handshake(), "Handshake", "handshake:")
 
 
 @pytest.mark.live
 def test_zoox_live():
+    _skip_if_disabled("zoox")
     _assert_well_formed(sources.fetch_zoox(), "Zoox", "zoox:")
 
 
 @pytest.mark.live
 def test_aws_live():
+    _skip_if_disabled("aws")
     _assert_well_formed(sources.fetch_aws(), "AWS", "aws:")
 
 
 @pytest.mark.live
 def test_uber_live():
+    _skip_if_disabled("uber")
     _assert_well_formed(sources.fetch_uber(), "Uber", "uber:")
 
 
@@ -68,6 +77,7 @@ def test_uber_live():
 def test_zap_surgical_live():
     # Zap currently posts zero roles publicly — assert the call succeeds and
     # the result is a (possibly empty) list of well-formed records.
+    _skip_if_disabled("zap_surgical")
     jobs = sources.fetch_zap_surgical()
     assert isinstance(jobs, list)
     for job in jobs:
@@ -79,6 +89,7 @@ def test_zap_surgical_live():
 def test_google_live():
     # Google requires Playwright; if Playwright isn't installed in the test
     # env the fetcher returns []. Treat empty as a skip rather than fail.
+    _skip_if_disabled("google")
     jobs = sources.fetch_google()
     if not jobs:
         pytest.skip("google: empty result (Playwright missing or zero matches)")
