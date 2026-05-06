@@ -82,4 +82,10 @@ def test_google_live():
     jobs = sources.fetch_google()
     if not jobs:
         pytest.skip("google: empty result (Playwright missing or zero matches)")
-    _assert_well_formed(jobs, "Google", "google:")
+    # The Google careers board is shared across Alphabet subsidiaries
+    # (YouTube, DeepMind, Verily, ...), so company can be any of those —
+    # only enforce schema + id-prefix here.
+    for job in jobs:
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["id"].startswith("google:")
+        assert job["company"]
