@@ -56,6 +56,12 @@ def test_handshake_live():
 
 
 @pytest.mark.live
+def test_coderabbit_live():
+    _skip_if_disabled("coderabbit")
+    _assert_well_formed(sources.fetch_coderabbit(), "CodeRabbit", "coderabbit:")
+
+
+@pytest.mark.live
 def test_zoox_live():
     _skip_if_disabled("zoox")
     _assert_well_formed(sources.fetch_zoox(), "Zoox", "zoox:")

@@ -97,6 +97,7 @@ US_REMOTE_TOKENS: list[str] = [
 # False → we only accept physical Bay Area roles, reject remote.
 COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
     "Handshake": True,
+    "CodeRabbit": True,
     "Zoox": True,
     "Zap Surgical": True,
     "Google": True,

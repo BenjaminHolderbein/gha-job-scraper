@@ -1,0 +1,53 @@
+{
+  "jobs": [
+    {
+      "id": "349306ff-6d79-4b26-af5a-49cea5201e25",
+      "title": "Machine Learning Engineer",
+      "department": "Engineering",
+      "team": "Engineering",
+      "employmentType": "FullTime",
+      "location": "San Francisco, CA",
+      "secondaryLocations": [],
+      "publishedAt": "2026-05-12T17:22:04.512+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "address": {
+        "postalAddress": {
+          "addressRegion": "California",
+          "addressCountry": "United States",
+          "addressLocality": "San Francisco"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/coderabbit/349306ff-6d79-4b26-af5a-49cea5201e25",
+      "applyUrl": "https://jobs.ashbyhq.com/coderabbit/349306ff-6d79-4b26-af5a-49cea5201e25/application",
+      "descriptionHtml": "<p>truncated</p>",
+      "descriptionPlain": "truncated"
+    },
+    {
+      "id": "3b439446-4663-430c-aaff-42e6f90f0912",
+      "title": "Enterprise Account Executive",
+      "department": "Sales",
+      "team": "Sales",
+      "employmentType": "FullTime",
+      "location": "Remote (USA)",
+      "secondaryLocations": [],
+      "publishedAt": "2026-05-01T09:00:00.000+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+        "postalAddress": {
+          "addressRegion": "Remote",
+          "addressCountry": "United States",
+          "addressLocality": "Remote"
+        }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/coderabbit/3b439446-4663-430c-aaff-42e6f90f0912",
+      "applyUrl": "https://jobs.ashbyhq.com/coderabbit/3b439446-4663-430c-aaff-42e6f90f0912/application",
+      "descriptionHtml": "<p>truncated</p>",
+      "descriptionPlain": "truncated"
+    }
+  ],
+  "apiVersion": "1"
+}

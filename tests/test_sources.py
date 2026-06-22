@@ -82,6 +82,33 @@ def test_ashby_normalizes_fixture():
     assert remote_flags == [False, True]
 
 
+def test_coderabbit_normalizes_fixture():
+    payload = _load_fixture("coderabbit_sample.json")
+    session = _FakeSession({sources.CODERABBIT_URL: payload})
+
+    jobs = sources.fetch_coderabbit(session=session)
+
+    assert session.calls == [sources.CODERABBIT_URL]
+    assert len(jobs) == len(payload["jobs"])
+    for job in jobs:
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["company"] == "CodeRabbit"
+        assert job["id"].startswith("coderabbit:")
+
+    # Map back to source records to verify per-record normalization.
+    by_id = {j["id"]: j for j in jobs}
+    for raw in payload["jobs"]:
+        normalized = by_id[f"coderabbit:{raw['id']}"]
+        assert normalized["remote"] is bool(raw.get("isRemote", False))
+        # url prefers jobUrl over applyUrl
+        assert normalized["url"] == (raw.get("jobUrl") or raw.get("applyUrl") or "")
+        assert normalized["posted_at"] == raw.get("publishedAt", "")
+
+    # Fixture was constructed with exactly one remote and one onsite entry.
+    remote_flags = sorted(j["remote"] for j in jobs)
+    assert remote_flags == [False, True]
+
+
 def test_lever_normalizes_fixture():
     payload = _load_fixture("lever_sample.json")
     session = _FakeSession({sources.ZOOX_URL: payload})
@@ -260,6 +287,7 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
         return list(sentinel_jobs)
 
     monkeypatch.setattr(sources, "fetch_handshake", boom)
+    monkeypatch.setattr(sources, "fetch_coderabbit", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_zoox", ok)
     monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [])
@@ -273,6 +301,7 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
 def test_fetch_all_both_sources_succeed(monkeypatch):
     monkeypatch.setattr(sources, "DISABLED_SOURCES", set())
     monkeypatch.setattr(sources, "fetch_handshake", lambda session=None: [{"id": "handshake:a"}])
+    monkeypatch.setattr(sources, "fetch_coderabbit", lambda session=None: [{"id": "coderabbit:g"}])
     monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
     monkeypatch.setattr(sources, "fetch_aws", lambda session=None: [{"id": "aws:c"}])
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
@@ -280,7 +309,7 @@ def test_fetch_all_both_sources_succeed(monkeypatch):
     monkeypatch.setattr(sources, "fetch_google", lambda: [{"id": "google:e"}])
     result = sources.fetch_all()
     assert [j["id"] for j in result] == [
-        "handshake:a", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e"
+        "handshake:a", "coderabbit:g", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e"
     ]
 
 
@@ -288,6 +317,7 @@ def test_fetch_all_skips_disabled_sources(monkeypatch):
     """Names listed in DISABLED_SOURCES are skipped without invoking the fetcher."""
     monkeypatch.setattr(sources, "DISABLED_SOURCES", {"google", "aws"})
     monkeypatch.setattr(sources, "fetch_handshake", lambda session=None: [{"id": "handshake:a"}])
+    monkeypatch.setattr(sources, "fetch_coderabbit", lambda session=None: [{"id": "coderabbit:g"}])
     monkeypatch.setattr(sources, "fetch_zoox", lambda session=None: [{"id": "zoox:b"}])
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
     monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [{"id": "uber:f"}])
@@ -299,7 +329,7 @@ def test_fetch_all_skips_disabled_sources(monkeypatch):
     monkeypatch.setattr(sources, "fetch_google", _should_not_be_called)
 
     result = sources.fetch_all()
-    assert [j["id"] for j in result] == ["handshake:a", "zoox:b", "zap:d", "uber:f"]
+    assert [j["id"] for j in result] == ["handshake:a", "coderabbit:g", "zoox:b", "zap:d", "uber:f"]
 
 
 class _AwsFakeSession:

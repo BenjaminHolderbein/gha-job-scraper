@@ -22,6 +22,7 @@ import requests
 log = logging.getLogger(__name__)
 
 HANDSHAKE_URL = "https://api.ashbyhq.com/posting-api/job-board/handshake"
+CODERABBIT_URL = "https://api.ashbyhq.com/posting-api/job-board/coderabbit"
 ZOOX_URL = "https://api.lever.co/v0/postings/zoox?mode=json"
 AWS_SEARCH_URL = "https://www.amazon.jobs/en/search.json"
 ZAP_SURGICAL_URL = (
@@ -105,10 +106,16 @@ def _get(
     return resp
 
 
-def _normalize_ashby(job: dict) -> dict:
+def _normalize_ashby(job: dict, *, company: str, id_prefix: str) -> dict:
+    """Normalize a raw Ashby posting-API job into the standard shape.
+
+    Shared by every Ashby-backed source (Handshake, CodeRabbit, ...). The
+    caller supplies the display ``company`` name and the ``id_prefix`` used to
+    namespace job ids (e.g. ``"handshake"`` -> ``"handshake:<id>"``).
+    """
     return {
-        "id": f"handshake:{job['id']}",
-        "company": "Handshake",
+        "id": f"{id_prefix}:{job['id']}",
+        "company": company,
         "title": job.get("title", ""),
         "department": job.get("department", "") or "",
         "location": job.get("location", "") or "",
@@ -254,7 +261,15 @@ def fetch_handshake(session: requests.Session | None = None) -> list[dict]:
     resp = _get(session, HANDSHAKE_URL)
     payload = resp.json()
     jobs = payload.get("jobs", [])
-    return [_normalize_ashby(j) for j in jobs]
+    return [_normalize_ashby(j, company="Handshake", id_prefix="handshake") for j in jobs]
+
+
+def fetch_coderabbit(session: requests.Session | None = None) -> list[dict]:
+    """Fetch CodeRabbit jobs from Ashby and normalize."""
+    resp = _get(session, CODERABBIT_URL)
+    payload = resp.json()
+    jobs = payload.get("jobs", [])
+    return [_normalize_ashby(j, company="CodeRabbit", id_prefix="coderabbit") for j in jobs]
 
 
 def fetch_zoox(session: requests.Session | None = None) -> list[dict]:
@@ -591,6 +606,7 @@ def fetch_all() -> list[dict]:
     all_jobs: list[dict] = []
     for name, fn in (
         ("handshake", fetch_handshake),
+        ("coderabbit", fetch_coderabbit),
         ("zoox", fetch_zoox),
         ("aws", fetch_aws),
         ("zap_surgical", fetch_zap_surgical),
