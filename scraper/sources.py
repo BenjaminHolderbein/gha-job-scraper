@@ -18,6 +18,8 @@ from typing import Any
 from urllib.parse import urljoin
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,46 @@ ZAP_SURGICAL_URL = (
 )
 UBER_URL = "https://www.uber.com/api/loadSearchJobsResults"
 TIMEOUT = 30
+
+# Transient gateway/server errors retry with exponential backoff. amazon.jobs
+# in particular returns sporadic 502/503/504 mid-pagination; without retries a
+# single flake fails the whole multi-page crawl (and the live-source check).
+RETRY_STATUSES = (502, 503, 504)
+RETRY_TOTAL = 3
+RETRY_BACKOFF_FACTOR = 0.5
+
+
+def _build_session() -> requests.Session:
+    """Return a Session that retries transient 5xx with exponential backoff.
+
+    Retries cover both GET and POST since every source endpoint we hit is a
+    read (Uber's search is a POST). ``raise_on_status=False`` lets the caller's
+    ``raise_for_status()`` surface the final response as an ``HTTPError`` once
+    retries are exhausted, keeping the exception type unchanged.
+    """
+    retry = Retry(
+        total=RETRY_TOTAL,
+        status_forcelist=RETRY_STATUSES,
+        backoff_factor=RETRY_BACKOFF_FACTOR,
+        allowed_methods=frozenset({"GET", "POST"}),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_DEFAULT_SESSION: requests.Session | None = None
+
+
+def _default_session() -> requests.Session:
+    """Lazily build and cache a shared retry-enabled session for default use."""
+    global _DEFAULT_SESSION
+    if _DEFAULT_SESSION is None:
+        _DEFAULT_SESSION = _build_session()
+    return _DEFAULT_SESSION
 
 # Sources to skip in ``fetch_all()`` and the live-test suite. Add a source's
 # registry name here to disable without removing its code or tests.
@@ -100,7 +142,7 @@ AWS_MAX_RESULTS_PER_QUERY = 500
 def _get(
     session: requests.Session | None, url: str, params: dict | None = None
 ) -> requests.Response:
-    s = session if session is not None else requests
+    s = session if session is not None else _default_session()
     resp = s.get(url, params=params, timeout=TIMEOUT) if params is not None else s.get(url, timeout=TIMEOUT)
     resp.raise_for_status()
     return resp
@@ -350,7 +392,7 @@ def fetch_uber(session: requests.Session | None = None) -> list[dict]:
     single page per query is sufficient. ``location`` filtering is left to
     :mod:`scraper.filters` since Uber returns ``allLocations`` per posting.
     """
-    s = session if session is not None else requests
+    s = session if session is not None else _default_session()
     by_id: dict[int, dict] = {}
     for query in UBER_QUERIES:
         body = {"params": {"query": query, "limit": 1000, "page": 0}}
