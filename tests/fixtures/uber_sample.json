@@ -1,74 +1,113 @@
 {
-  "status": "success",
-  "data": {
-    "totalResults": {"low": 4, "high": 0, "unsigned": false},
-    "results": [
-      {
-        "id": 158248,
-        "title": "Machine Learning Engineer II",
-        "department": "Engineering",
-        "team": "Machine Learning",
-        "location": {
-          "country": "USA",
-          "region": "California",
-          "city": "San Francisco",
-          "countryName": "United States"
+  "jobs": [
+    {
+      "@search.score": 214.65302,
+      "Id": "158248",
+      "Reference": "158248",
+      "Title": "Machine Learning Engineer II",
+      "Teams": ["Engineer"],
+      "AdditionalText": "Engineer Software Engineering",
+      "ContractType": "Full time",
+      "WorkPattern": "Regular",
+      "Remote": false,
+      "DisplayDate": "2026-04-09T19:17:00Z",
+      "Locations": [
+        {
+          "Address": "San Francisco, CA, USA",
+          "City": "San Francisco",
+          "Region": "California",
+          "Country": "United States",
+          "CountryCode": null,
+          "PostalCode": null
         },
-        "creationDate": "2026-04-09T19:17:00.000Z",
-        "allLocations": [
-          {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"},
-          {"country": "USA", "region": "California", "city": "Sunnyvale", "countryName": "United States"}
-        ]
-      },
-      {
-        "id": 200001,
-        "title": "Data Scientist",
-        "department": "Data Science",
-        "team": "Marketplace",
-        "location": {
-          "country": "USA",
-          "region": "California",
-          "city": "Sunnyvale",
-          "countryName": "United States"
-        },
-        "creationDate": "2026-03-15T10:00:00.000Z",
-        "allLocations": [
-          {"country": "USA", "region": "California", "city": "Sunnyvale", "countryName": "United States"}
-        ]
-      },
-      {
-        "id": 300002,
-        "title": "Senior Machine Learning Engineer",
-        "department": "Engineering",
-        "team": "Maps",
-        "location": {
-          "country": "NLD",
-          "region": "",
-          "city": "Amsterdam",
-          "countryName": "Netherlands"
-        },
-        "creationDate": "2026-04-01T08:00:00.000Z",
-        "allLocations": [
-          {"country": "NLD", "region": "", "city": "Amsterdam", "countryName": "Netherlands"}
-        ]
-      },
-      {
-        "id": 400003,
-        "title": "Applied Scientist",
-        "department": "Engineering",
-        "team": "Pricing",
-        "location": {
-          "country": "USA",
-          "region": "New York",
-          "city": "New York",
-          "countryName": "United States"
-        },
-        "creationDate": "2026-02-20T12:00:00.000Z",
-        "allLocations": [
-          {"country": "USA", "region": "New York", "city": "New York", "countryName": "United States"},
-          {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"}
-        ]
-      }
-    ]
-  }
+        {
+          "Address": "Sunnyvale, CA, USA",
+          "City": "Sunnyvale",
+          "Region": "California",
+          "Country": "United States",
+          "CountryCode": null,
+          "PostalCode": null
+        }
+      ],
+      "Urls": [
+        {"Culture": "en-us", "IsDefault": true, "Url": "/en/jobs/158248/"}
+      ],
+      "Salary": {"Currency": null, "Description": "", "MaxValue": null, "MinValue": null, "Period": null},
+      "Description": "<p>ML role.</p>"
+    },
+    {
+      "@search.score": 180.1,
+      "Id": "200001",
+      "Reference": "200001",
+      "Title": "Data Scientist",
+      "Teams": ["Data Science"],
+      "AdditionalText": "Data Science",
+      "ContractType": "Full time",
+      "WorkPattern": "Regular",
+      "Remote": false,
+      "DisplayDate": "2026-03-15T10:00:00Z",
+      "Locations": [
+        {
+          "Address": "Sunnyvale, CA, USA",
+          "City": "Sunnyvale",
+          "Region": "California",
+          "Country": "United States",
+          "CountryCode": null,
+          "PostalCode": null
+        }
+      ],
+      "Urls": [
+        {"Culture": "en-us", "IsDefault": true, "Url": "/en/jobs/200001/"}
+      ],
+      "Salary": {"Currency": null, "Description": "", "MaxValue": null, "MinValue": null, "Period": null},
+      "Description": "<p>DS role.</p>"
+    },
+    {
+      "@search.score": 150.7,
+      "Id": "300002",
+      "Reference": "300002",
+      "Title": "Senior Machine Learning Engineer",
+      "Teams": ["Engineer"],
+      "AdditionalText": "Engineer Software Engineering",
+      "ContractType": "Full time",
+      "WorkPattern": "Regular",
+      "Remote": false,
+      "DisplayDate": "2026-04-01T08:00:00Z",
+      "Locations": [
+        {
+          "Address": "Amsterdam, Netherlands",
+          "City": "Amsterdam",
+          "Region": "",
+          "Country": "Netherlands",
+          "CountryCode": null,
+          "PostalCode": null
+        }
+      ],
+      "Urls": [
+        {"Culture": "en-us", "IsDefault": true, "Url": "/en/jobs/300002/"}
+      ],
+      "Salary": {"Currency": null, "Description": "", "MaxValue": null, "MinValue": null, "Period": null},
+      "Description": "<p>Maps ML role.</p>"
+    },
+    {
+      "@search.score": 120.4,
+      "Id": "400003",
+      "Reference": "400003",
+      "Title": "Applied Scientist, Remote",
+      "Teams": [],
+      "AdditionalText": "",
+      "ContractType": "Full time",
+      "WorkPattern": "Regular",
+      "Remote": true,
+      "DisplayDate": "2026-02-20T00:00:00Z",
+      "Locations": [],
+      "Urls": [],
+      "Salary": {"Currency": null, "Description": "", "MaxValue": null, "MinValue": null, "Period": null},
+      "Description": "<p>Remote science role.</p>"
+    }
+  ],
+  "totalPages": 1,
+  "totalJobs": 4,
+  "page": 1,
+  "pageSize": 10
 }

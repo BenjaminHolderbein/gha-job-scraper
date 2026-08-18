@@ -169,100 +169,108 @@ def test_lever_remote_workplace_type_maps_to_true():
     assert jobs[0]["id"] == "zoox:xyz"
 
 
-class _UberFakeSession:
-    """Session stand-in for Uber's POST endpoint.
+class _UberFakePager:
+    """``fetch_page`` stand-in for Uber's search API.
 
-    Returns the same canned payload for every POST regardless of the query
-    body (the production code issues one POST per UBER_QUERIES entry — for
-    fixture tests we want each call to see the fixture).
+    Returns the same canned payload for page 1 of every query and records the
+    calls (the production code runs one search per UBER_QUERIES entry — for
+    fixture tests we want each query to see the fixture).
     """
 
     def __init__(self, payload):
         self._payload = payload
-        self.calls: list[dict] = []
+        self.calls: list[tuple[str, int]] = []
 
-    def post(self, url, json=None, headers=None, timeout=None):
-        self.calls.append({"url": url, "json": json, "headers": headers})
-        if url != sources.UBER_URL:
-            raise AssertionError(f"unexpected URL: {url}")
-        return _FakeResponse(self._payload)
+    def __call__(self, query, page_num):
+        self.calls.append((query, page_num))
+        return self._payload
 
 
 def test_uber_normalizes_fixture():
     payload = _load_fixture("uber_sample.json")
-    session = _UberFakeSession(payload)
+    pager = _UberFakePager(payload)
 
-    jobs = sources.fetch_uber(session=session)
+    jobs = sources._uber_search(pager)
 
-    # Uber issues one POST per query; results dedupe across queries by id, so
-    # the fixture's 4 unique ids should appear exactly once in the output.
+    # One search per query; the fixture reports totalPages=1, so exactly one
+    # page each. Results dedupe across queries by Id, so the fixture's 4
+    # unique ids should appear exactly once in the output.
     assert len(jobs) == 4
-    assert len(session.calls) == len(sources.UBER_QUERIES)
-    for call in session.calls:
-        assert call["headers"]["x-csrf-token"]
-        assert call["json"]["params"]["page"] == 0
-        assert isinstance(call["json"]["params"]["query"], str)
+    assert pager.calls == [(q, 1) for q in sources.UBER_QUERIES]
 
     for job in jobs:
         assert set(job.keys()) == REQUIRED_KEYS
         assert job["company"] == "Uber"
         assert job["id"].startswith("uber:")
-        assert job["url"].startswith("https://www.uber.com/global/en/careers/list/")
-        assert job["remote"] is False
 
     by_id = {j["id"]: j for j in jobs}
-    # Multi-location US role: "City, Region" join across allLocations.
+    # Multi-location US role: "City, Region" join across Locations.
     sf_role = by_id["uber:158248"]
     assert "San Francisco, California" in sf_role["location"]
     assert "Sunnyvale, California" in sf_role["location"]
+    assert sf_role["url"] == "https://jobs.uber.com/en/jobs/158248/"
+    assert sf_role["remote"] is False
+    assert sf_role["department"] == "Engineer"
     # Non-US role: country name appended so filters can reject foreign locations.
     nl_role = by_id["uber:300002"]
     assert "Netherlands" in nl_role["location"]
+    # Remote role with empty Urls/Locations: URL falls back to the id-built one.
+    remote_role = by_id["uber:400003"]
+    assert remote_role["remote"] is True
+    assert remote_role["url"] == "https://jobs.uber.com/en/jobs/400003/"
+    assert remote_role["location"] == ""
+
+
+def test_uber_paginates_until_total_pages():
+    """Requests successive pages of a query until totalPages is reached."""
+
+    def pager(query, page_num):
+        return {
+            "jobs": [{"Id": f"{query}:{page_num}", "Title": "ML Engineer"}],
+            "totalPages": 3,
+            "totalJobs": 3,
+            "page": page_num,
+            "pageSize": 10,
+        }
+
+    jobs = sources._uber_search(pager)
+    # 3 pages per query, one unique job per page.
+    assert len(jobs) == 3 * len(sources.UBER_QUERIES)
+
+
+def test_uber_stops_on_failed_page():
+    """A ``None`` payload (API failure) ends that query without raising."""
+    jobs = sources._uber_search(lambda query, page_num: None)
+    assert jobs == []
 
 
 def test_uber_dedupes_across_queries():
     """A job appearing in multiple query responses is emitted once."""
     payload = {
-        "data": {
-            "results": [
-                {
-                    "id": 999,
-                    "title": "ML Engineer",
-                    "department": "Engineering",
-                    "location": {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"},
-                    "creationDate": "2026-04-01T00:00:00.000Z",
-                    "allLocations": [
-                        {"country": "USA", "region": "California", "city": "San Francisco", "countryName": "United States"}
-                    ],
-                }
-            ]
-        }
+        "jobs": [
+            {
+                "Id": "999",
+                "Title": "ML Engineer",
+                "Teams": ["Engineer"],
+                "Remote": False,
+                "DisplayDate": "2026-04-01T00:00:00Z",
+                "Locations": [
+                    {"City": "San Francisco", "Region": "California", "Country": "United States"}
+                ],
+                "Urls": [{"Culture": "en-us", "IsDefault": True, "Url": "/en/jobs/999/"}],
+            }
+        ],
+        "totalPages": 1,
+        "totalJobs": 1,
+        "page": 1,
+        "pageSize": 10,
     }
-    session = _UberFakeSession(payload)
-    jobs = sources.fetch_uber(session=session)
+    pager = _UberFakePager(payload)
+    jobs = sources._uber_search(pager)
     assert len(jobs) == 1
-    # But the source still issued one POST per query (dedupe is in-process).
-    assert len(session.calls) == len(sources.UBER_QUERIES)
-
-
-def test_uber_handles_missing_alllocations():
-    """Falls back to the singular ``location`` field when allLocations missing."""
-    payload = {
-        "data": {
-            "results": [
-                {
-                    "id": 1,
-                    "title": "ML Engineer",
-                    "department": "Engineering",
-                    "location": {"country": "USA", "region": "California", "city": "Palo Alto", "countryName": "United States"},
-                    "creationDate": "",
-                }
-            ]
-        }
-    }
-    jobs = sources.fetch_uber(session=_UberFakeSession(payload))
-    assert len(jobs) == 1
-    assert jobs[0]["location"] == "Palo Alto, California"
+    assert jobs[0]["location"] == "San Francisco, California"
+    # But the source still ran every query (dedupe is in-process).
+    assert len(pager.calls) == len(sources.UBER_QUERIES)
 
 
 def test_fetch_all_continues_on_source_failure(monkeypatch):

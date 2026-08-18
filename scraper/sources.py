@@ -30,7 +30,6 @@ AWS_SEARCH_URL = "https://www.amazon.jobs/en/search.json"
 ZAP_SURGICAL_URL = (
     "https://api.smartrecruiters.com/v1/companies/zap-surgical/postings"
 )
-UBER_URL = "https://www.uber.com/api/loadSearchJobsResults"
 TIMEOUT = 30
 
 # Transient gateway/server errors retry with exponential backoff. amazon.jobs
@@ -45,7 +44,7 @@ def _build_session() -> requests.Session:
     """Return a Session that retries transient 5xx with exponential backoff.
 
     Retries cover both GET and POST since every source endpoint we hit is a
-    read (Uber's search is a POST). ``raise_on_status=False`` lets the caller's
+    read. ``raise_on_status=False`` lets the caller's
     ``raise_for_status()`` surface the final response as an ``HTTPError`` once
     retries are exhausted, keeping the exception type unchanged.
     """
@@ -77,10 +76,14 @@ def _default_session() -> requests.Session:
 # registry name here to disable without removing its code or tests.
 DISABLED_SOURCES: set[str] = {"google"}
 
-# --- Uber careers ------------------------------------------------------------
-# Uber's public search endpoint requires an x-csrf-token header but does not
-# validate its value. The API ignores ``limit`` and returns all matching jobs
-# in a single response, so we issue one POST per query and dedupe by id.
+# --- Uber careers (Playwright-based) -----------------------------------------
+# Uber retired www.uber.com/api/loadSearchJobsResults (404 since 2026-08) in
+# favor of a new job board at jobs.uber.com whose search API sits behind
+# Cloudflare bot protection — plain ``requests`` gets a JS challenge page. We
+# drive a headless browser to the board once (letting Cloudflare clear), then
+# call the JSON API from page context with ``fetch``. One search per query in
+# UBER_QUERIES, paginated via the response's ``totalPages``; dedupe by ``Id``.
+UBER_JOBS_URL = "https://jobs.uber.com/en/jobs/"
 UBER_QUERIES = [
     "machine learning",
     "data scientist",
@@ -90,15 +93,10 @@ UBER_QUERIES = [
     "deep learning",
     "computer vision",
 ]
-UBER_HEADERS = {
-    "Content-Type": "application/json",
-    "x-csrf-token": "x",
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-}
+UBER_PAGE_CAP = 30  # pages per query; the API serves 10 jobs per page
+UBER_NAV_TIMEOUT_MS = 30_000
+UBER_TOTAL_BUDGET_S = 120.0
+UBER_API_RETRIES = 3  # per-call retries while the Cloudflare challenge settles
 
 # --- Google careers (Playwright-based) ---------------------------------------
 GOOGLE_CAREERS_BASE = "https://www.google.com/about/careers/applications/"
@@ -260,22 +258,16 @@ def _normalize_zap(job: dict) -> dict:
 
 
 def _format_uber_location(job: dict) -> str:
-    """Build a single 'City, Region; City, Region' location string from allLocations.
+    """Build a single 'City, Region; City, Region' string from ``Locations``.
 
-    Falls back to the singular ``location`` field if ``allLocations`` is empty.
+    For non-US locations the country name is appended so location filters can
+    detect foreign postings; for US, "City, Region" is enough.
     """
-    locs = job.get("allLocations") or []
-    if not locs:
-        single = job.get("location")
-        if single:
-            locs = [single]
     parts: list[str] = []
-    for loc in locs:
-        city = (loc.get("city") or "").strip()
-        region = (loc.get("region") or "").strip()
-        country = (loc.get("countryName") or loc.get("country") or "").strip()
-        # For non-US, include country name so location filters can detect
-        # foreign postings; for US, "City, Region" is enough.
+    for loc in job.get("Locations") or []:
+        city = (loc.get("City") or "").strip()
+        region = (loc.get("Region") or "").strip()
+        country = (loc.get("Country") or "").strip()
         if country and country not in ("USA", "United States"):
             piece = ", ".join(p for p in (city, region, country) if p)
         else:
@@ -285,16 +277,29 @@ def _format_uber_location(job: dict) -> str:
     return "; ".join(parts)
 
 
+def _uber_job_url(job: dict) -> str:
+    """Resolve a posting's canonical URL from its ``Urls`` list.
+
+    Prefers the entry flagged ``IsDefault``; falls back to the first entry,
+    then to a URL built from the job id.
+    """
+    urls = [u for u in job.get("Urls") or [] if u.get("Url")]
+    chosen = next((u for u in urls if u.get("IsDefault")), urls[0] if urls else None)
+    if chosen:
+        return urljoin("https://jobs.uber.com", chosen["Url"])
+    return f"https://jobs.uber.com/en/jobs/{job['Id']}/"
+
+
 def _normalize_uber(job: dict) -> dict:
     return {
-        "id": f"uber:{job['id']}",
+        "id": f"uber:{job['Id']}",
         "company": "Uber",
-        "title": job.get("title", "") or "",
-        "department": job.get("department", "") or "",
+        "title": job.get("Title", "") or "",
+        "department": "; ".join(t for t in job.get("Teams") or [] if t),
         "location": _format_uber_location(job),
-        "remote": False,
-        "url": f"https://www.uber.com/global/en/careers/list/{job['id']}/",
-        "posted_at": job.get("creationDate", "") or "",
+        "remote": bool(job.get("Remote", False)),
+        "url": _uber_job_url(job),
+        "posted_at": job.get("DisplayDate", "") or "",
     }
 
 
@@ -384,28 +389,125 @@ def fetch_zap_surgical(session: requests.Session | None = None) -> list[dict]:
     return results
 
 
-def fetch_uber(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Uber jobs from the public careers search API across ML queries.
+def _uber_search(fetch_page) -> list[dict]:
+    """Run every :data:`UBER_QUERIES` search through ``fetch_page`` and merge.
 
-    Issues one POST per query in :data:`UBER_QUERIES`, dedupes by job id, and
-    returns normalized job dicts. The API ignores the ``limit`` field, so a
-    single page per query is sufficient. ``location`` filtering is left to
-    :mod:`scraper.filters` since Uber returns ``allLocations`` per posting.
+    ``fetch_page(query, page_num)`` must return the search API's payload dict
+    (``{"jobs": [...], "totalPages": N, ...}``) or ``None`` on failure. Pages
+    are 1-based. Stops paginating a query when the payload is missing/empty,
+    ``totalPages`` is reached, or :data:`UBER_PAGE_CAP` is hit. Dedupes across
+    queries by ``Id`` and returns normalized job dicts.
     """
-    s = session if session is not None else _default_session()
-    by_id: dict[int, dict] = {}
+    by_id: dict[str, dict] = {}
     for query in UBER_QUERIES:
-        body = {"params": {"query": query, "limit": 1000, "page": 0}}
-        resp = s.post(UBER_URL, json=body, headers=UBER_HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
-        results = ((payload.get("data") or {}).get("results")) or []
-        for job in results:
-            jid = job.get("id")
-            if jid is None or jid in by_id:
-                continue
-            by_id[jid] = _normalize_uber(job)
+        for page_num in range(1, UBER_PAGE_CAP + 1):
+            payload = fetch_page(query, page_num)
+            if not isinstance(payload, dict):
+                break
+            jobs = payload.get("jobs") or []
+            if not jobs:
+                break
+            for job in jobs:
+                jid = job.get("Id")
+                if jid is None or jid in by_id:
+                    continue
+                by_id[jid] = _normalize_uber(job)
+            total_pages = payload.get("totalPages")
+            if isinstance(total_pages, int) and page_num >= total_pages:
+                break
     return list(by_id.values())
+
+
+def fetch_uber() -> list[dict]:
+    """Scrape jobs.uber.com for ML/AI/DS roles across :data:`UBER_QUERIES`.
+
+    The job board's JSON API is Cloudflare-protected, so we load the board in
+    headless Chromium (Playwright) and issue the API calls from page context,
+    where the browser's clearance cookie applies. Mirrors :func:`fetch_google`'s
+    failure posture: returns an empty list (no exception) on Playwright import
+    failure, launch failure, or zero results — the live-source check asserts
+    non-empty, so breakage still surfaces there.
+    """
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception:
+        log.exception("uber: playwright not available; skipping")
+        return []
+
+    deadline = time.monotonic() + UBER_TOTAL_BUDGET_S
+
+    fetch_js = """
+    async ([query, pageNum]) => {
+      const url = `/api/jobs/search/?search=${encodeURIComponent(query)}&page=${pageNum}`;
+      const resp = await fetch(url, { headers: { accept: "application/json" } });
+      if (!resp.ok) return { __status: resp.status };
+      try {
+        return await resp.json();
+      } catch (e) {
+        return { __status: resp.status, __parse_error: true };
+      }
+    }
+    """
+
+    try:
+        with sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception:
+                log.exception("uber: chromium launch failed")
+                return []
+            try:
+                context = browser.new_context(user_agent=GOOGLE_USER_AGENT)
+                page = context.new_page()
+                page.set_default_timeout(UBER_NAV_TIMEOUT_MS)
+                page.goto(
+                    UBER_JOBS_URL,
+                    timeout=UBER_NAV_TIMEOUT_MS,
+                    wait_until="domcontentloaded",
+                )
+
+                def fetch_page(query: str, page_num: int) -> dict | None:
+                    if time.monotonic() > deadline:
+                        log.warning("uber: wall-clock budget exhausted")
+                        return None
+                    # Retry a few times: right after page load the Cloudflare
+                    # challenge may still be settling, and the first fetch can
+                    # come back 403 until the clearance cookie is issued.
+                    for attempt in range(1, UBER_API_RETRIES + 1):
+                        try:
+                            payload = page.evaluate(fetch_js, [query, page_num])
+                        except Exception:
+                            log.exception(
+                                "uber: fetch failed q=%r page=%d", query, page_num
+                            )
+                            return None
+                        if isinstance(payload, dict) and "__status" not in payload:
+                            return payload
+                        log.warning(
+                            "uber: API returned %s (attempt %d/%d) q=%r page=%d",
+                            (payload or {}).get("__status"),
+                            attempt,
+                            UBER_API_RETRIES,
+                            query,
+                            page_num,
+                        )
+                        if attempt < UBER_API_RETRIES:
+                            page.wait_for_timeout(3_000)
+                    return None
+
+                results = _uber_search(fetch_page)
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    log.exception("uber: browser close failed")
+    except Exception:
+        log.exception("uber: unexpected failure during scrape")
+        return []
+
+    if not results:
+        log.warning("uber: produced zero jobs across all queries")
+    return results
 
 
 def _parse_google_job_card(card: dict) -> dict | None:
