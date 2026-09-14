@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from scraper.filters import (
+    is_rejected_department,
+    is_rejected_title,
     is_senior,
     matches,
     matches_location,
@@ -128,6 +130,15 @@ def test_filter_rejects_staff_and_principal(title: str) -> None:
         "AIE",
         "AIE Infra",
         "AI Engineer, Platform",
+        # Forward Deployed Engineer variants
+        "Forward Deployed Engineer",
+        "Forward-Deployed Engineer",
+        "Forward Deployed AI Engineer",
+        "Forward Deployed Software Engineer - SF",
+        "Forward Deployed Engineer, GenAI",
+        "Forward Deployed Infrastructure Engineer, New Grad",
+        "AI Engineer - FDE (Forward Deployed Engineer)",
+        "FDE",
     ],
 )
 def test_matches_title_true(title: str) -> None:
@@ -149,6 +160,10 @@ def test_matches_title_true(title: str) -> None:
         "Sales Engineer",
         "Designer",
         "",
+        # Forward Deployed without an engineering noun
+        "Forward Deployed Product Manager, Enterprise",
+        "Deployment Strategist - Japan Forward Deployed",
+        "Pre-Sales Program Lead, Forward Deployed Engineering",
     ],
 )
 def test_matches_title_false(title: str) -> None:
@@ -269,6 +284,17 @@ def test_matches_location_physical_bay_area_accept(
         # remote=False + empty/remote string → reject regardless
         ("Handshake", "", False, False),
         ("Handshake", "Remote", False, False),
+        # Bare country string (Greenhouse "United States") → US-anywhere
+        ("Handshake", "United States", False, True),
+        ("Handshake", "USA", False, True),
+        ("AWS", "United States", False, False),
+        # Physical non-BA US city spelled with the country → NOT remote
+        ("Handshake", "Atlanta, Georgia, United States", False, False),
+        ("Handshake", "Chicago, Illinois, United States", False, False),
+        ("Handshake", "Tysons, Virginia, United States", False, False),
+        # ...but "Remote" anywhere in the string still counts
+        ("Handshake", "Remote - United States", False, True),
+        ("Handshake", "Remote-Friendly, United States", False, True),
     ],
 )
 def test_matches_location_company_hq(
@@ -319,3 +345,65 @@ def test_matches_missing_company_rejects_remote() -> None:
         remote=True,
     )
     assert matches(job) is False
+
+
+# ---------------------------------------------------------------------------
+# Hardware / department rejects
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "ASIC Design Engineer, Cloud-Scale Machine Learning Acceleration team - Annapurna Labs",
+        "Physical Design Engineer - Static Timing Analysis, Annapurna Labs, Cloud Scale Machine Learning",
+        "EMIR Engineer, Annapurna Labs - Cloud Scale Machine Learning",
+        "AI SoC Modeling Engineer, Annapurna Labs Machine Learning Accelerators, AWS",
+        "Hardware Development Engineer, AI/ML Server Development",
+        "Manufacturing hardware engineer, Cloud AI/ML/storage server teams",
+        "Cloud Hardware Dev Engineer (AWS Generative AI & ML Servers)",
+        "Forward Deployed Engineer - Mixed Reality",
+        "AI Support Engineer - San Francisco",
+    ],
+)
+def test_is_rejected_title_true(title: str) -> None:
+    assert is_rejected_title(title) is True
+    assert matches(_job(company="AWS", title=title, location="Cupertino, California, USA")) is False
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Applied Scientist, AWS Agentic AI",
+        "ML Compiler Engineer, Annapurna Labs",
+        "Software Development Engineer I, ML Infra Services, Annapurna Labs",
+        "Forward Deployed Engineer",
+        "",
+    ],
+)
+def test_is_rejected_title_false(title: str) -> None:
+    assert is_rejected_title(title) is False
+
+
+def test_department_reject_hardware_development() -> None:
+    assert is_rejected_department("Hardware Development") is True
+    assert is_rejected_department("Software Development") is False
+    assert is_rejected_department("") is False
+    # ML-flavored title in a hardware department is rejected
+    job = _job(
+        company="AWS",
+        title="Virtual Platform Software Engineer, Machine Learning Accelerators",
+        department="Hardware Development",
+        location="Cupertino, California, USA",
+    )
+    assert matches(job) is False
+    assert matches({**job, "department": "Software Development"}) is True
+
+
+def test_fde_bay_area_accepted_and_seniority_still_applies() -> None:
+    assert matches(_job(company="Anthropic", title="Forward Deployed Engineer")) is True
+    assert matches(_job(company="Anthropic", title="Manager, Forward Deployed Engineering")) is False
+    # Non-BA-HQ company + remote-US → rejected
+    assert matches(_job(company="Cohere", title="Forward Deployed Engineer", location="United States", remote=True)) is False
+    # BA-HQ company + remote-US → accepted
+    assert matches(_job(company="Databricks", title="AI Engineer - FDE (Forward Deployed Engineer)", location="United States", remote=True)) is True

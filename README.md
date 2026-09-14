@@ -1,10 +1,12 @@
 # gha-job-scraper
 
-Scheduled GitHub Actions workflow that scrapes companies' careers pages for ML/AI/DS individual-contributor roles in the SF Bay Area (and US-remote, where the company is BA-headquartered) and notifies on new matches via email and/or mobile push.
+Scheduled GitHub Actions workflow that scrapes companies' careers pages for ML/AI/DS and Forward Deployed Engineer (FDE) individual-contributor roles in the SF Bay Area (and US-remote, where the company is BA-headquartered) and notifies on new matches via email and/or mobile push.
 
 ## Sources
 
-Each source is a `fetch_<company>()` function in [`scraper/sources.py`](scraper/sources.py) that returns a normalized job dict. `fetch_all()` is the canonical list of currently active sources. Most use a public ATS JSON endpoint (Ashby, Lever, SmartRecruiters, amazon.jobs); JS-rendered career pages use Playwright (headless Chromium).
+Each source is a `fetch_<company>()` function in [`scraper/sources.py`](scraper/sources.py) that returns a normalized job dict. `fetch_all()` is the canonical list of currently active sources. Most use a public ATS JSON endpoint (Ashby, Lever, Greenhouse, SmartRecruiters, amazon.jobs); JS-rendered career pages use Playwright (headless Chromium).
+
+Current sources: Handshake, CodeRabbit (Ashby); Zoox, Palantir (Lever); AWS (amazon.jobs); Zap Surgical (SmartRecruiters); Uber, Google (Playwright); OpenAI, Cohere (Ashby); Anthropic, Scale AI, Databricks, Vercel, C3 AI (Greenhouse). The last eight were added for FDE coverage.
 
 ## Filtering
 
@@ -12,6 +14,7 @@ See [`scraper/filters.py`](scraper/filters.py). Three predicates, all must pass:
 
 - **Title** matches an ML/AI/DS IC pattern (regex-based, word-order flexible) — see `TITLE_PATTERNS`.
 - **Seniority** does not match a senior/managerial token — see `SENIORITY_REJECT`.
+- **Not hardware/support**: title has no `TITLE_REJECT` token (ASIC, SoC, Hardware, ...) and department is not in `DEPARTMENT_REJECT` (amazon.jobs "Hardware Development") — catches silicon roles whose team names mention "Machine Learning".
 - **Location** is acceptable per `matches_location()`: physical Bay Area always wins; remote roles accepted only when the company's HQ is in the Bay Area (`COMPANY_HQ_IN_BAY_AREA`).
 
 ## Run locally

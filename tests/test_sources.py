@@ -169,6 +169,105 @@ def test_lever_remote_workplace_type_maps_to_true():
     assert jobs[0]["id"] == "zoox:xyz"
 
 
+def test_palantir_lever_normalizes_fixture():
+    payload = _load_fixture("palantir_lever_sample.json")
+    session = _FakeSession({sources.PALANTIR_URL: payload})
+
+    jobs = sources.fetch_palantir(session=session)
+
+    assert session.calls == [sources.PALANTIR_URL]
+    assert len(jobs) == len(payload)
+    for job in jobs:
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["company"] == "Palantir"
+        assert job["id"].startswith("palantir:")
+    titles = {j["title"] for j in jobs}
+    assert any(t.startswith("Forward Deployed") for t in titles)
+
+
+def test_lever_multi_location_joined():
+    """2+ allLocations are joined with '; ' so the location filter sees every office."""
+    fake_payload = [
+        {
+            "id": "multi",
+            "text": "Forward Deployed Engineer",
+            "categories": {
+                "location": "New York, NY",
+                "allLocations": ["New York, NY", "Palo Alto, CA"],
+            },
+            "workplaceType": "onsite",
+            "hostedUrl": "https://jobs.lever.co/palantir/multi",
+            "createdAt": 1700000000000,
+        }
+    ]
+    session = _FakeSession({sources.PALANTIR_URL: fake_payload})
+    jobs = sources.fetch_palantir(session=session)
+    assert jobs[0]["location"] == "New York, NY; Palo Alto, CA"
+
+
+@pytest.mark.parametrize(
+    "fetcher, url, company, prefix",
+    [
+        (sources.fetch_openai, sources.OPENAI_URL, "OpenAI", "openai:"),
+        (sources.fetch_cohere, sources.COHERE_URL, "Cohere", "cohere:"),
+    ],
+)
+def test_ashby_backed_sources_normalize(fetcher, url, company, prefix):
+    payload = _load_fixture("ashby_sample.json")
+    session = _FakeSession({url: payload})
+    jobs = fetcher(session=session)
+    assert session.calls == [url]
+    assert len(jobs) == len(payload["jobs"])
+    for job in jobs:
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["company"] == company
+        assert job["id"].startswith(prefix)
+
+
+@pytest.mark.parametrize(
+    "fetcher, url, company, prefix",
+    [
+        (sources.fetch_anthropic, sources.ANTHROPIC_URL, "Anthropic", "anthropic:"),
+        (sources.fetch_scale_ai, sources.SCALE_AI_URL, "Scale AI", "scaleai:"),
+        (sources.fetch_databricks, sources.DATABRICKS_URL, "Databricks", "databricks:"),
+        (sources.fetch_vercel, sources.VERCEL_URL, "Vercel", "vercel:"),
+        (sources.fetch_c3_ai, sources.C3_AI_URL, "C3 AI", "c3ai:"),
+    ],
+)
+def test_greenhouse_backed_sources_normalize(fetcher, url, company, prefix):
+    payload = _load_fixture("greenhouse_sample.json")
+    session = _FakeSession({url: payload})
+    jobs = fetcher(session=session)
+    assert session.calls == [url]
+    assert len(jobs) == len(payload["jobs"])
+    by_id = {j["id"]: j for j in jobs}
+    for raw in payload["jobs"]:
+        job = by_id[f"{prefix}{raw['id']}"]
+        assert set(job.keys()) == REQUIRED_KEYS
+        assert job["company"] == company
+        assert job["title"] == raw["title"]
+        assert job["location"] == raw["location"]["name"]
+        assert job["url"] == raw["absolute_url"]
+        assert job["posted_at"] == (raw.get("first_published") or raw.get("updated_at"))
+        # remote inferred from the location name only
+        assert job["remote"] is ("remote" in raw["location"]["name"].lower())
+
+
+def test_greenhouse_departments_joined_when_present():
+    raw = {
+        "id": 1,
+        "title": "Forward Deployed Engineer",
+        "location": {"name": "San Francisco, CA"},
+        "absolute_url": "https://example.com/1",
+        "updated_at": "2026-01-01T00:00:00-05:00",
+        "departments": [{"name": "Engineering"}, {"name": "Applied"}],
+    }
+    job = sources._normalize_greenhouse(raw, company="X", id_prefix="x")
+    assert job["department"] == "Engineering; Applied"
+    assert job["posted_at"] == "2026-01-01T00:00:00-05:00"
+    assert job["remote"] is False
+
+
 class _UberFakePager:
     """``fetch_page`` stand-in for Uber's search API.
 
@@ -301,6 +400,14 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_google", lambda: [])
+    monkeypatch.setattr(sources, "fetch_palantir", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_openai", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_cohere", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_anthropic", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_scale_ai", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_databricks", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_vercel", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_c3_ai", lambda session=None: [])
 
     result = sources.fetch_all()
     assert result == sentinel_jobs
@@ -315,10 +422,18 @@ def test_fetch_all_both_sources_succeed(monkeypatch):
     monkeypatch.setattr(sources, "fetch_zap_surgical", lambda session=None: [{"id": "zap:d"}])
     monkeypatch.setattr(sources, "fetch_uber", lambda session=None: [{"id": "uber:f"}])
     monkeypatch.setattr(sources, "fetch_google", lambda: [{"id": "google:e"}])
+    monkeypatch.setattr(sources, "fetch_palantir", lambda session=None, _n="palantir": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_openai", lambda session=None, _n="openai": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_cohere", lambda session=None, _n="cohere": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_anthropic", lambda session=None, _n="anthropic": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_scale_ai", lambda session=None, _n="scale_ai": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_databricks", lambda session=None, _n="databricks": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_vercel", lambda session=None, _n="vercel": [{"id": _n + ":x"}])
+    monkeypatch.setattr(sources, "fetch_c3_ai", lambda session=None, _n="c3_ai": [{"id": _n + ":x"}])
     result = sources.fetch_all()
     assert [j["id"] for j in result] == [
-        "handshake:a", "coderabbit:g", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e"
-    ]
+        "handshake:a", "coderabbit:g", "zoox:b", "aws:c", "zap:d", "uber:f", "google:e",
+    ] + [n + ":x" for n in ("palantir", "openai", "cohere", "anthropic", "scale_ai", "databricks", "vercel", "c3_ai")]
 
 
 def test_fetch_all_skips_disabled_sources(monkeypatch):
@@ -335,6 +450,14 @@ def test_fetch_all_skips_disabled_sources(monkeypatch):
 
     monkeypatch.setattr(sources, "fetch_aws", _should_not_be_called)
     monkeypatch.setattr(sources, "fetch_google", _should_not_be_called)
+    monkeypatch.setattr(sources, "fetch_palantir", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_openai", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_cohere", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_anthropic", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_scale_ai", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_databricks", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_vercel", lambda session=None: [])
+    monkeypatch.setattr(sources, "fetch_c3_ai", lambda session=None: [])
 
     result = sources.fetch_all()
     assert [j["id"] for j in result] == ["handshake:a", "coderabbit:g", "zoox:b", "zap:d", "uber:f"]

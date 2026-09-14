@@ -7,6 +7,8 @@ A job dict has the shape:
 `matches(job)` returns True iff the job passes all filters:
   - title matches at least one TITLE_PATTERNS regex
   - title does NOT contain any SENIORITY_REJECT entry
+  - title does NOT contain any TITLE_REJECT token (hardware/silicon roles)
+  - department does NOT contain any DEPARTMENT_REJECT entry
   - location is acceptable given the company's HQ (see `matches_location`)
 """
 
@@ -33,6 +35,40 @@ TITLE_PATTERNS: list[re.Pattern] = [
     re.compile(r"\b(applied scientist|research scientist|research engineer|data scientist)\b", re.IGNORECASE),
     # Abbreviation-only roles
     re.compile(r"\b(mle|aie)\b", re.IGNORECASE),
+    # Forward Deployed Engineer (FDE) and variants: "Forward Deployed AI
+    # Engineer", "Forward-Deployed Engineer", "AI Engineer - FDE". Requires an
+    # engineer/scientist/architect noun so "Forward Deployed Product Manager"
+    # and "Deployment Strategist - Forward Deployed" don't match.
+    re.compile(
+        r"\bforward[- ]deployed\b.*\b(engineer|scientist|researcher|architect)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bfde\b", re.IGNORECASE),
+]
+
+# Titles containing any of these (word-boundary, case-insensitive) are rejected
+# even when TITLE_PATTERNS match. Catches hardware/silicon roles whose team
+# names mention "Machine Learning" (e.g. AWS Annapurna Labs' "ASIC Design
+# Engineer, Cloud-Scale Machine Learning Acceleration team").
+TITLE_REJECT: list[str] = [
+    "ASIC",
+    "SoC",
+    "RTL",
+    "FPGA",
+    "EMIR",
+    "Silicon",
+    "Hardware",
+    "Physical Design",
+    "Manufacturing",
+    "Mixed Reality",
+    "Support Engineer",  # customer-support roles ("AI Support Engineer")
+]
+
+# Departments (the ATS's own job category) that are rejected outright.
+# amazon.jobs labels every Annapurna Labs / server-hardware role
+# "Hardware Development" regardless of how ML-flavored the title is.
+DEPARTMENT_REJECT: list[str] = [
+    "Hardware Development",
 ]
 
 SENIORITY_REJECT: list[str] = [
@@ -103,6 +139,14 @@ COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
     "Google": True,
     "Uber": True,
     "AWS": False,
+    "OpenAI": True,
+    "Anthropic": True,
+    "Scale AI": True,
+    "Databricks": True,
+    "Vercel": True,
+    "C3 AI": True,
+    "Palantir": False,  # Denver HQ; Palo Alto office
+    "Cohere": False,  # Toronto HQ; SF office
 }
 
 # Locations that, combined with remote=True, we treat as ambiguous-US remote.
@@ -145,6 +189,22 @@ def matches_title(title: str) -> bool:
     if not title:
         return False
     return any(p.search(title) for p in TITLE_PATTERNS)
+
+
+def is_rejected_title(title: str) -> bool:
+    """True if the title contains a TITLE_REJECT token (word-boundary match)."""
+    if not title:
+        return False
+    return any(
+        re.search(rf"\b{re.escape(tok)}\b", title, re.IGNORECASE) for tok in TITLE_REJECT
+    )
+
+
+def is_rejected_department(department: str) -> bool:
+    """True if the department contains a DEPARTMENT_REJECT entry."""
+    if not department:
+        return False
+    return _ci_contains_any(department, DEPARTMENT_REJECT)
 
 
 def is_senior(title: str) -> bool:
@@ -206,12 +266,26 @@ def _company_hq_in_bay_area(company: str) -> bool:
     return COMPANY_HQ_IN_BAY_AREA[company]
 
 
+def _is_us_remote_location(loc: str, remote: bool) -> bool:
+    """True if ``loc`` denotes a US-wide/remote posting rather than a US city."""
+    if not _ci_contains_any(loc, US_REMOTE_TOKENS):
+        return False
+    if remote or "remote" in loc.lower():
+        return True
+    # Bare country string ("United States", "USA") means anywhere in the US.
+    return loc.strip().lower() in {t.lower() for t in US_REMOTE_TOKENS}
+
+
 def matches_location(location: str, remote: bool, company: str) -> bool:
     """True if the location is acceptable.
 
     Acceptance rules:
       1. Physical Bay Area match → accept, regardless of company HQ.
-      2. Explicit US-remote token in location → accept IFF company HQ is in Bay Area.
+      2. US-remote location → accept IFF company HQ is in Bay Area. A US token
+         ("United States", "Remote - US", ...) only counts as remote when the
+         remote flag is set, the location mentions "remote", or the location
+         is *just* the country (Greenhouse spells physical offices as
+         "Atlanta, Georgia, United States", which must not count).
       3. remote=True + ambiguous location ("", "Remote", "Remote - Anywhere") → accept
          IFF company HQ is in Bay Area.
       4. remote=True + clearly non-US location → reject.
@@ -226,8 +300,8 @@ def matches_location(location: str, remote: bool, company: str) -> bool:
 
     hq_in_ba = _company_hq_in_bay_area(company)
 
-    # Rule 2: explicit US-remote token.
-    if _ci_contains_any(loc, US_REMOTE_TOKENS):
+    # Rule 2: US-remote location.
+    if _is_us_remote_location(loc, remote):
         return hq_in_ba
 
     if remote:
@@ -246,8 +320,9 @@ def matches_location(location: str, remote: bool, company: str) -> bool:
 
 
 def matches(job: dict) -> bool:
-    """True if the job passes title, seniority, and location filters."""
+    """True if the job passes title, seniority, department, and location filters."""
     title = job.get("title", "") or ""
+    department = job.get("department", "") or ""
     location = job.get("location", "") or ""
     remote = bool(job.get("remote", False))
     company = job.get("company", "") or ""
@@ -255,6 +330,10 @@ def matches(job: dict) -> bool:
     if not matches_title(title):
         return False
     if is_senior(title):
+        return False
+    if is_rejected_title(title):
+        return False
+    if is_rejected_department(department):
         return False
     if not matches_location(location, remote, company):
         return False
