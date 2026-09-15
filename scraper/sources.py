@@ -26,14 +26,6 @@ log = logging.getLogger(__name__)
 HANDSHAKE_URL = "https://api.ashbyhq.com/posting-api/job-board/handshake"
 CODERABBIT_URL = "https://api.ashbyhq.com/posting-api/job-board/coderabbit"
 ZOOX_URL = "https://api.lever.co/v0/postings/zoox?mode=json"
-PALANTIR_URL = "https://api.lever.co/v0/postings/palantir?mode=json"
-OPENAI_URL = "https://api.ashbyhq.com/posting-api/job-board/openai"
-COHERE_URL = "https://api.ashbyhq.com/posting-api/job-board/cohere"
-ANTHROPIC_URL = "https://boards-api.greenhouse.io/v1/boards/anthropic/jobs"
-SCALE_AI_URL = "https://boards-api.greenhouse.io/v1/boards/scaleai/jobs"
-DATABRICKS_URL = "https://boards-api.greenhouse.io/v1/boards/databricks/jobs"
-VERCEL_URL = "https://boards-api.greenhouse.io/v1/boards/vercel/jobs"
-C3_AI_URL = "https://boards-api.greenhouse.io/v1/boards/c3iot/jobs"
 AWS_SEARCH_URL = "https://www.amazon.jobs/en/search.json"
 ZAP_SURGICAL_URL = (
     "https://api.smartrecruiters.com/v1/companies/zap-surgical/postings"
@@ -173,13 +165,12 @@ def _normalize_ashby(job: dict, *, company: str, id_prefix: str) -> dict:
     }
 
 
-def _normalize_lever(job: dict, *, company: str = "Zoox", id_prefix: str = "zoox") -> dict:
-    """Normalize a raw Lever posting into the standard shape.
+def _normalize_lever(job: dict) -> dict:
+    """Normalize a raw Lever (Zoox) posting into the standard shape.
 
-    Shared by every Lever-backed source (Zoox, Palantir, ...). Multi-location
-    postings (``categories.allLocations`` with 2+ entries) are joined with
-    "; " so the location filter can see every office; single-location
-    postings use ``categories.location`` verbatim.
+    Multi-location postings (``categories.allLocations`` with 2+ entries) are
+    joined with "; " so the location filter can see every office;
+    single-location postings use ``categories.location`` verbatim.
     """
     categories = job.get("categories") or {}
     created_ms = job.get("createdAt")
@@ -195,36 +186,14 @@ def _normalize_lever(job: dict, *, company: str = "Zoox", id_prefix: str = "zoox
     else:
         location = categories.get("location", "") or ""
     return {
-        "id": f"{id_prefix}:{job['id']}",
-        "company": company,
+        "id": f"zoox:{job['id']}",
+        "company": "Zoox",
         "title": job.get("text", ""),
         "department": categories.get("department", "") or "",
         "location": location,
         "remote": job.get("workplaceType") == "remote",
         "url": job.get("hostedUrl", ""),
         "posted_at": posted_at,
-    }
-
-
-def _normalize_greenhouse(job: dict, *, company: str, id_prefix: str) -> dict:
-    """Normalize a raw Greenhouse job-board API job into the standard shape.
-
-    Greenhouse has no remote flag; ``remote`` is inferred from the location
-    name containing "remote". ``departments`` is only present when the board
-    is queried with ``?content=true`` or per-job, so it's optional here.
-    """
-    location = ((job.get("location") or {}).get("name") or "").strip()
-    departments = job.get("departments") or []
-    department = "; ".join(d.get("name", "") for d in departments if d.get("name"))
-    return {
-        "id": f"{id_prefix}:{job['id']}",
-        "company": company,
-        "title": job.get("title", "") or "",
-        "department": department,
-        "location": location,
-        "remote": "remote" in location.lower(),
-        "url": job.get("absolute_url", "") or "",
-        "posted_at": job.get("first_published") or job.get("updated_at") or "",
     }
 
 
@@ -367,59 +336,6 @@ def fetch_zoox(session: requests.Session | None = None) -> list[dict]:
     payload = resp.json()
     # Lever returns a raw JSON array.
     return [_normalize_lever(j) for j in payload]
-
-
-def fetch_palantir(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Palantir jobs from Lever and normalize."""
-    resp = _get(session, PALANTIR_URL)
-    return [_normalize_lever(j, company="Palantir", id_prefix="palantir") for j in resp.json()]
-
-
-def fetch_openai(session: requests.Session | None = None) -> list[dict]:
-    """Fetch OpenAI jobs from Ashby and normalize."""
-    resp = _get(session, OPENAI_URL)
-    jobs = resp.json().get("jobs", [])
-    return [_normalize_ashby(j, company="OpenAI", id_prefix="openai") for j in jobs]
-
-
-def fetch_cohere(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Cohere jobs from Ashby and normalize."""
-    resp = _get(session, COHERE_URL)
-    jobs = resp.json().get("jobs", [])
-    return [_normalize_ashby(j, company="Cohere", id_prefix="cohere") for j in jobs]
-
-
-def _fetch_greenhouse(
-    session: requests.Session | None, url: str, *, company: str, id_prefix: str
-) -> list[dict]:
-    resp = _get(session, url)
-    jobs = resp.json().get("jobs", [])
-    return [_normalize_greenhouse(j, company=company, id_prefix=id_prefix) for j in jobs]
-
-
-def fetch_anthropic(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Anthropic jobs from Greenhouse and normalize."""
-    return _fetch_greenhouse(session, ANTHROPIC_URL, company="Anthropic", id_prefix="anthropic")
-
-
-def fetch_scale_ai(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Scale AI jobs from Greenhouse and normalize."""
-    return _fetch_greenhouse(session, SCALE_AI_URL, company="Scale AI", id_prefix="scaleai")
-
-
-def fetch_databricks(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Databricks jobs from Greenhouse and normalize."""
-    return _fetch_greenhouse(session, DATABRICKS_URL, company="Databricks", id_prefix="databricks")
-
-
-def fetch_vercel(session: requests.Session | None = None) -> list[dict]:
-    """Fetch Vercel jobs from Greenhouse and normalize."""
-    return _fetch_greenhouse(session, VERCEL_URL, company="Vercel", id_prefix="vercel")
-
-
-def fetch_c3_ai(session: requests.Session | None = None) -> list[dict]:
-    """Fetch C3 AI jobs from Greenhouse and normalize."""
-    return _fetch_greenhouse(session, C3_AI_URL, company="C3 AI", id_prefix="c3ai")
 
 
 def fetch_aws(session: requests.Session | None = None) -> list[dict]:
@@ -851,14 +767,6 @@ def fetch_all() -> list[dict]:
         ("zap_surgical", fetch_zap_surgical),
         ("uber", fetch_uber),
         ("google", fetch_google),
-        ("palantir", fetch_palantir),
-        ("openai", fetch_openai),
-        ("cohere", fetch_cohere),
-        ("anthropic", fetch_anthropic),
-        ("scale_ai", fetch_scale_ai),
-        ("databricks", fetch_databricks),
-        ("vercel", fetch_vercel),
-        ("c3_ai", fetch_c3_ai),
     ):
         if name in DISABLED_SOURCES:
             log.info("source %s disabled; skipping", name)

@@ -106,22 +106,3 @@ def test_google_live():
         assert set(job.keys()) == REQUIRED_KEYS
         assert job["id"].startswith("google:")
         assert job["company"]
-
-
-@pytest.mark.parametrize(
-    "name, fetcher, company, prefix",
-    [
-        ("palantir", sources.fetch_palantir, "Palantir", "palantir:"),
-        ("openai", sources.fetch_openai, "OpenAI", "openai:"),
-        ("cohere", sources.fetch_cohere, "Cohere", "cohere:"),
-        ("anthropic", sources.fetch_anthropic, "Anthropic", "anthropic:"),
-        ("scale_ai", sources.fetch_scale_ai, "Scale AI", "scaleai:"),
-        ("databricks", sources.fetch_databricks, "Databricks", "databricks:"),
-        ("vercel", sources.fetch_vercel, "Vercel", "vercel:"),
-        ("c3_ai", sources.fetch_c3_ai, "C3 AI", "c3ai:"),
-    ],
-)
-@pytest.mark.live
-def test_fde_sources_live(name, fetcher, company, prefix):
-    _skip_if_disabled(name)
-    _assert_well_formed(fetcher(), company, prefix)

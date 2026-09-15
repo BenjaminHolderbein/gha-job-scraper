@@ -139,14 +139,6 @@ COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
     "Google": True,
     "Uber": True,
     "AWS": False,
-    "OpenAI": True,
-    "Anthropic": True,
-    "Scale AI": True,
-    "Databricks": True,
-    "Vercel": True,
-    "C3 AI": True,
-    "Palantir": False,  # Denver HQ; Palo Alto office
-    "Cohere": False,  # Toronto HQ; SF office
 }
 
 # Locations that, combined with remote=True, we treat as ambiguous-US remote.

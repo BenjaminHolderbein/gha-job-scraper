@@ -284,7 +284,7 @@ def test_matches_location_physical_bay_area_accept(
         # remote=False + empty/remote string → reject regardless
         ("Handshake", "", False, False),
         ("Handshake", "Remote", False, False),
-        # Bare country string (Greenhouse "United States") → US-anywhere
+        # Bare country string ("United States") → US-anywhere
         ("Handshake", "United States", False, True),
         ("Handshake", "USA", False, True),
         ("AWS", "United States", False, False),
@@ -401,9 +401,9 @@ def test_department_reject_hardware_development() -> None:
 
 
 def test_fde_bay_area_accepted_and_seniority_still_applies() -> None:
-    assert matches(_job(company="Anthropic", title="Forward Deployed Engineer")) is True
-    assert matches(_job(company="Anthropic", title="Manager, Forward Deployed Engineering")) is False
+    assert matches(_job(company="Handshake", title="Forward Deployed Engineer")) is True
+    assert matches(_job(company="Handshake", title="Manager, Forward Deployed Engineering")) is False
     # Non-BA-HQ company + remote-US → rejected
-    assert matches(_job(company="Cohere", title="Forward Deployed Engineer", location="United States", remote=True)) is False
+    assert matches(_job(company="AWS", title="Forward Deployed Engineer", location="United States", remote=True)) is False
     # BA-HQ company + remote-US → accepted
-    assert matches(_job(company="Databricks", title="AI Engineer - FDE (Forward Deployed Engineer)", location="United States", remote=True)) is True
+    assert matches(_job(company="Zoox", title="AI Engineer - FDE (Forward Deployed Engineer)", location="United States", remote=True)) is True
