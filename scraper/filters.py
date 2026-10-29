@@ -4,176 +4,49 @@ A job dict has the shape:
     {"id": str, "company": str, "title": str, "department": str,
      "location": str, "remote": bool, "url": str, "posted_at": str}
 
-`matches(job)` returns True iff the job passes all filters:
-  - title matches at least one TITLE_PATTERNS regex
-  - title does NOT contain any SENIORITY_REJECT entry
-  - title does NOT contain any TITLE_REJECT token (hardware/silicon roles)
-  - department does NOT contain any DEPARTMENT_REJECT entry
-  - location is acceptable given the company's HQ (see `matches_location`)
+The scraper runs in *referral-watch* mode: it flags roles worth referring a
+friend to, so there is no seniority or location filtering — any level, any
+office. `matches(job)` returns True iff:
+  - the company is in TARGET_COMPANIES
+  - the title matches a TITLE_PATTERNS regex OR the department is in
+    DEPARTMENT_ALLOW
+  - the title does NOT contain any TITLE_REJECT token (contract / AI-training
+    gigs posted on the same board, which aren't referable full-time roles)
 """
 
 from __future__ import annotations
 
-import logging
 import re
 
-log = logging.getLogger(__name__)
+TARGET_COMPANIES: set[str] = {"Handshake"}
 
 TITLE_PATTERNS: list[re.Pattern] = [
-    # ML/AI/CV/NLP role with engineer/scientist/researcher noun — word-order flexible
-    re.compile(
-        r"\b(machine learning|ml|deep learning|dl|artificial intelligence|ai|computer vision|cv|nlp|perception)\b"
-        r".*\b(engineer|scientist|researcher)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(engineer|scientist|researcher)\b"
-        r".*\b(machine learning|ml|deep learning|dl|computer vision|cv|nlp|perception)\b",
-        re.IGNORECASE,
-    ),
-    # Canonical standalone titles
-    re.compile(r"\b(applied scientist|research scientist|research engineer|data scientist)\b", re.IGNORECASE),
-    # Abbreviation-only roles
-    re.compile(r"\b(mle|aie)\b", re.IGNORECASE),
-    # Forward Deployed Engineer (FDE) and variants: "Forward Deployed AI
-    # Engineer", "Forward-Deployed Engineer", "AI Engineer - FDE". Requires an
-    # engineer/scientist/architect noun so "Forward Deployed Product Manager"
-    # and "Deployment Strategist - Forward Deployed" don't match.
-    re.compile(
-        r"\bforward[- ]deployed\b.*\b(engineer|scientist|researcher|architect)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\bfde\b", re.IGNORECASE),
+    # "Data Scientist", "Data Science Manager", "Senior Data Scientist, Handshake AI"
+    re.compile(r"\bdata scien(ce|tist)s?\b", re.IGNORECASE),
+    # Applied / Research / Decision / ML Scientist and other *Scientist titles.
+    re.compile(r"\bscientists?\b", re.IGNORECASE),
 ]
 
-# Titles containing any of these (word-boundary, case-insensitive) are rejected
-# even when TITLE_PATTERNS match. Catches hardware/silicon roles whose team
-# names mention "Machine Learning" (e.g. AWS Annapurna Labs' "ASIC Design
-# Engineer, Cloud-Scale Machine Learning Acceleration team").
+# Ashby department names that count as data science regardless of title.
+DEPARTMENT_ALLOW: list[str] = [
+    "Data Science",
+]
+
+# Handshake AI posts large numbers of contract expert/fellow roles (e.g.
+# "Handshake AI Fellow ..., Contract", "PhD Data Scientist - AI Trainer") on
+# the same Ashby board. Those aren't referral-eligible full-time roles.
 TITLE_REJECT: list[str] = [
-    "ASIC",
-    "SoC",
-    "RTL",
-    "FPGA",
-    "EMIR",
-    "Silicon",
-    "Hardware",
-    "Physical Design",
-    "Manufacturing",
-    "Mixed Reality",
-    "Support Engineer",  # customer-support roles ("AI Support Engineer")
+    "Contract",
+    "Contractor",
+    "Freelance",
+    "Fellow",
+    "Fellowship",
+    "Trainer",
+    "AI Training",
+    "Tutor",
+    "Annotator",
+    "Expert",
 ]
-
-# Departments (the ATS's own job category) that are rejected outright.
-# amazon.jobs labels every Annapurna Labs / server-hardware role
-# "Hardware Development" regardless of how ML-flavored the title is.
-DEPARTMENT_REJECT: list[str] = [
-    "Hardware Development",
-]
-
-SENIORITY_REJECT: list[str] = [
-    "Senior",
-    "Sr.",
-    "Staff",
-    "Principal",
-    "Lead",
-    "Director",
-    "Manager",
-    "Head of",
-    "VP",
-    "Vice President",
-    "Intern",
-    "Student",
-]
-
-LOCATION_ALLOW: list[str] = [
-    "San Francisco",
-    "SF Bay",
-    "Bay Area",
-    "Palo Alto",
-    "Mountain View",
-    "Foster City",
-    "Redwood City",
-    "South San Francisco",
-    "San Jose",
-    "Santa Clara",
-    "Sunnyvale",
-    "Cupertino",
-    "Menlo Park",
-    "Berkeley",
-    "Oakland",
-    "Emeryville",
-    "Hayward",
-    "Fremont",
-    "Milpitas",
-    "Burlingame",
-    "Millbrae",
-    "San Mateo",
-    "Daly City",
-    "Alameda",
-]
-
-US_REMOTE_TOKENS: list[str] = [
-    "Remote - US",
-    "Remote (US)",
-    "Remote, US",
-    "Remote US",
-    "Remote - United States",
-    "Remote (United States)",
-    "United States",
-    "USA",
-    "US Remote",
-    "Remote-US",
-    "Anywhere in US",
-    "Anywhere in the US",
-    "Remote, USA",
-]
-
-# Company HQ lookup — True if HQ is in Bay Area (we accept remote roles for these).
-# False → we only accept physical Bay Area roles, reject remote.
-COMPANY_HQ_IN_BAY_AREA: dict[str, bool] = {
-    "Handshake": True,
-    "CodeRabbit": True,
-    "Zoox": True,
-    "Zap Surgical": True,
-    "Google": True,
-    "Uber": True,
-    "AWS": False,
-}
-
-# Locations that, combined with remote=True, we treat as ambiguous-US remote.
-_AMBIGUOUS_REMOTE_LOCATIONS = {"", "remote", "remote - anywhere"}
-
-# Clearly non-US remote markers: if a remote job's location contains any of
-# these (and no US token), reject.
-_NON_US_REMOTE_HINTS = [
-    "europe",
-    "emea",
-    "uk",
-    "united kingdom",
-    "canada",
-    "apac",
-    "asia",
-    "australia",
-    "india",
-    "germany",
-    "france",
-    "ireland",
-    "netherlands",
-    "latam",
-    "mexico",
-    "brazil",
-    "argentina",
-    "japan",
-    "china",
-    "singapore",
-]
-
-
-def _ci_contains_any(haystack: str, needles: list[str]) -> bool:
-    """Case-insensitive substring match against any needle."""
-    h = haystack.lower()
-    return any(n.lower() in h for n in needles)
 
 
 def matches_title(title: str) -> bool:
@@ -181,6 +54,14 @@ def matches_title(title: str) -> bool:
     if not title:
         return False
     return any(p.search(title) for p in TITLE_PATTERNS)
+
+
+def matches_department(department: str) -> bool:
+    """True if the department contains a DEPARTMENT_ALLOW entry."""
+    if not department:
+        return False
+    d = department.lower()
+    return any(a.lower() in d for a in DEPARTMENT_ALLOW)
 
 
 def is_rejected_title(title: str) -> bool:
@@ -192,141 +73,16 @@ def is_rejected_title(title: str) -> bool:
     )
 
 
-def is_rejected_department(department: str) -> bool:
-    """True if the department contains a DEPARTMENT_REJECT entry."""
-    if not department:
-        return False
-    return _ci_contains_any(department, DEPARTMENT_REJECT)
-
-
-def is_senior(title: str) -> bool:
-    """True if the title looks senior/managerial (should be rejected).
-
-    Uses word-boundary matching for the short tokens that could match inside
-    other words (e.g. "VP" inside "VPN"), and also handles the "Sr" / "Sr."
-    special cases without tripping on words like "first".
-    """
-    if not title:
-        return False
-    lowered = title.lower()
-
-    # Word-boundary tokens (avoid false positives like "VPN" matching "VP").
-    word_boundary_tokens = {
-        "senior",
-        "staff",
-        "principal",
-        "lead",
-        "director",
-        "manager",
-        "vp",
-        "vice president",
-        "intern",
-        "student",
-    }
-    for token in word_boundary_tokens:
-        if re.search(rf"\b{re.escape(token)}\b", lowered):
-            return True
-
-    # "Head of" — substring is fine, it's specific enough.
-    if "head of" in lowered:
-        return True
-
-    # "Sr." — literal, distinctive enough to substring-match.
-    if "sr." in lowered:
-        return True
-
-    # " Sr " — only match as a standalone token with surrounding whitespace
-    # (padding the title on both sides catches start/end cases) to avoid
-    # false positives inside words like "first".
-    if " sr " in f" {lowered} ":
-        return True
-
-    return False
-
-
-def _company_hq_in_bay_area(company: str) -> bool:
-    """Return True if company HQ is in the Bay Area.
-
-    Unknown companies default to False (conservative) and emit a warning.
-    """
-    if not company:
-        log.warning("matches_location: empty company, defaulting to non-BA HQ")
-        return False
-    if company not in COMPANY_HQ_IN_BAY_AREA:
-        log.warning("matches_location: unknown company %r, defaulting to non-BA HQ", company)
-        return False
-    return COMPANY_HQ_IN_BAY_AREA[company]
-
-
-def _is_us_remote_location(loc: str, remote: bool) -> bool:
-    """True if ``loc`` denotes a US-wide/remote posting rather than a US city."""
-    if not _ci_contains_any(loc, US_REMOTE_TOKENS):
-        return False
-    if remote or "remote" in loc.lower():
-        return True
-    # Bare country string ("United States", "USA") means anywhere in the US.
-    return loc.strip().lower() in {t.lower() for t in US_REMOTE_TOKENS}
-
-
-def matches_location(location: str, remote: bool, company: str) -> bool:
-    """True if the location is acceptable.
-
-    Acceptance rules:
-      1. Physical Bay Area match → accept, regardless of company HQ.
-      2. US-remote location → accept IFF company HQ is in Bay Area. A US token
-         ("United States", "Remote - US", ...) only counts as remote when the
-         remote flag is set, the location mentions "remote", or the location
-         is *just* the country (Greenhouse spells physical offices as
-         "Atlanta, Georgia, United States", which must not count).
-      3. remote=True + ambiguous location ("", "Remote", "Remote - Anywhere") → accept
-         IFF company HQ is in Bay Area.
-      4. remote=True + clearly non-US location → reject.
-      5. Otherwise → reject.
-    """
-    loc = (location or "").strip()
-    loc_lower = loc.lower()
-
-    # Rule 1: physical Bay Area match wins regardless of company.
-    if _ci_contains_any(loc, LOCATION_ALLOW):
-        return True
-
-    hq_in_ba = _company_hq_in_bay_area(company)
-
-    # Rule 2: US-remote location.
-    if _is_us_remote_location(loc, remote):
-        return hq_in_ba
-
-    if remote:
-        # Rule 4: explicit non-US location → reject.
-        if any(hint in loc_lower for hint in _NON_US_REMOTE_HINTS):
-            return False
-        # Rule 3: ambiguous-remote → accept iff BA HQ.
-        if loc_lower in _AMBIGUOUS_REMOTE_LOCATIONS:
-            return hq_in_ba
-        # Remote flag set but location is some other city/string not in our
-        # allowlist and not obviously non-US: be conservative and reject.
-        return False
-
-    # Rule 5: not remote and not in allowlist.
-    return False
-
-
 def matches(job: dict) -> bool:
-    """True if the job passes title, seniority, department, and location filters."""
+    """True if the job is a referral-worthy data science role at a target company."""
     title = job.get("title", "") or ""
     department = job.get("department", "") or ""
-    location = job.get("location", "") or ""
-    remote = bool(job.get("remote", False))
     company = job.get("company", "") or ""
 
-    if not matches_title(title):
+    if company not in TARGET_COMPANIES:
         return False
-    if is_senior(title):
+    if not (matches_title(title) or matches_department(department)):
         return False
     if is_rejected_title(title):
-        return False
-    if is_rejected_department(department):
-        return False
-    if not matches_location(location, remote, company):
         return False
     return True

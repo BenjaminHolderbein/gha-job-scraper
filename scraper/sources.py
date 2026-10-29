@@ -74,7 +74,9 @@ def _default_session() -> requests.Session:
 
 # Sources to skip in ``fetch_all()`` and the live-test suite. Add a source's
 # registry name here to disable without removing its code or tests.
-DISABLED_SOURCES: set[str] = {"google"}
+# Referral-watch mode only targets Handshake; the job-search sources stay in
+# the codebase so they can be re-enabled later.
+DISABLED_SOURCES: set[str] = {"coderabbit", "zoox", "aws", "zap_surgical", "uber", "google"}
 
 # --- Uber careers (Playwright-based) -----------------------------------------
 # Uber retired www.uber.com/api/loadSearchJobsResults (404 since 2026-08) in

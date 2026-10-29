@@ -1,21 +1,22 @@
 # gha-job-scraper
 
-Scheduled GitHub Actions workflow that scrapes companies' careers pages for ML/AI/DS and Forward Deployed Engineer (FDE) individual-contributor roles in the SF Bay Area (and US-remote, where the company is BA-headquartered) and notifies on new matches via email and/or mobile push.
+Scheduled GitHub Actions workflow that watches Handshake's careers board (which also carries Handshake AI roles) and notifies via email and/or mobile push when a new data science role posts, so you can refer a friend for it.
 
 ## Sources
 
-Each source is a `fetch_<company>()` function in [`scraper/sources.py`](scraper/sources.py) that returns a normalized job dict. `fetch_all()` is the canonical list of currently active sources. Most use a public ATS JSON endpoint (Ashby, Lever, SmartRecruiters, amazon.jobs); JS-rendered career pages use Playwright (headless Chromium).
+Each source is a `fetch_<company>()` function in [`scraper/sources.py`](scraper/sources.py) that returns a normalized job dict. `fetch_all()` is the canonical list of sources, and `DISABLED_SOURCES` turns individual sources off.
 
-Current sources: Handshake, CodeRabbit (Ashby); Zoox (Lever); AWS (amazon.jobs); Zap Surgical (SmartRecruiters); Uber, Google (Playwright).
+Active: Handshake (Ashby). The earlier job-search sources (CodeRabbit, Zoox, AWS, Zap Surgical, Uber, Google) remain in the code but are disabled. Remove a source from `DISABLED_SOURCES` and add its company to `TARGET_COMPANIES` to turn it back on.
 
 ## Filtering
 
-See [`scraper/filters.py`](scraper/filters.py). Three predicates, all must pass:
+See [`scraper/filters.py`](scraper/filters.py). A job matches when:
 
-- **Title** matches an ML/AI/DS IC pattern (regex-based, word-order flexible) — see `TITLE_PATTERNS`.
-- **Seniority** does not match a senior/managerial token — see `SENIORITY_REJECT`.
-- **Not hardware/support**: title has no `TITLE_REJECT` token (ASIC, SoC, Hardware, ...) and department is not in `DEPARTMENT_REJECT` (amazon.jobs "Hardware Development") — catches silicon roles whose team names mention "Machine Learning".
-- **Location** is acceptable per `matches_location()`: physical Bay Area always wins; remote roles accepted only when the company's HQ is in the Bay Area (`COMPANY_HQ_IN_BAY_AREA`).
+- **Company** is in `TARGET_COMPANIES`.
+- **Title** matches a data science pattern ("Data Scientist", "Data Science ...", any "... Scientist"), **or** the department is in `DEPARTMENT_ALLOW` ("Data Science").
+- **Not a contract/AI-training gig**: the title has no `TITLE_REJECT` token (Contract, Fellow, Trainer, Expert, ...). Handshake AI posts many such roles on the same board, and they aren't referable.
+
+Seniority and location are deliberately not filtered, since a role at any level or office might suit a friend.
 
 ## Run locally
 
@@ -59,6 +60,6 @@ The `live` suite verifies each source's real endpoint still returns well-formed 
 
 1. Identify the ATS (try Greenhouse, Lever, Ashby, SmartRecruiters JSON endpoints first; fall back to Playwright for JS-rendered sites).
 2. Add a `fetch_<company>()` in `scraper/sources.py` that returns the normalized shape `{id, company, title, department, location, remote, url, posted_at}`.
-3. Add an entry to `COMPANY_HQ_IN_BAY_AREA` in `scraper/filters.py` (`True` if HQ is Bay Area and remote roles should be accepted; `False` to restrict to physical Bay Area only).
+3. Add the company name to `TARGET_COMPANIES` in `scraper/filters.py`.
 4. Wire into `fetch_all()` in `sources.py`.
 5. Add an offline fixture + test in `tests/test_sources.py`, and a `@pytest.mark.live` test in `tests/test_live_sources.py`.

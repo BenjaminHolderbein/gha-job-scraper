@@ -68,7 +68,7 @@ def send_email(new_jobs: list[dict]) -> None:
     n = len(new_jobs)
 
     msg = EmailMessage()
-    msg["Subject"] = f"New ML/AI/DS roles — {today} ({n} new)"
+    msg["Subject"] = f"Referral watch: {n} new role{'s' if n != 1 else ''} to refer — {today}"
     msg["From"] = address
     msg["To"] = address
     msg.set_content(_build_plain_body(new_jobs))
@@ -127,7 +127,7 @@ def send_ntfy(new_jobs: list[dict]) -> None:
     n = len(new_jobs)
 
     headers = {
-        "Title": f"{n} new ML/AI/DS roles",
+        "Title": f"{n} new role{'s' if n != 1 else ''} to refer",
         "Priority": "high" if n >= 3 else "default",
         "Tags": "briefcase",
         "Click": new_jobs[0]["url"],

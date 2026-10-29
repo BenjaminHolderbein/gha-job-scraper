@@ -86,7 +86,7 @@ def test_send_ntfy_posts_expected_payload(monkeypatch):
     assert captured["timeout"] == 10
 
     headers = captured["headers"]
-    assert headers["Title"] == "3 new ML/AI/DS roles"
+    assert headers["Title"] == "3 new roles to refer"
     assert headers["Priority"] == "high"
     assert headers["Tags"] == "briefcase"
     assert headers["Click"] == "https://jobs.ashbyhq.com/handshake/abc"

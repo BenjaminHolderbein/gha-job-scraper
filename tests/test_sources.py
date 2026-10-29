@@ -314,6 +314,7 @@ def test_fetch_all_continues_on_source_failure(monkeypatch):
     def ok(session=None):
         return list(sentinel_jobs)
 
+    monkeypatch.setattr(sources, "DISABLED_SOURCES", set())
     monkeypatch.setattr(sources, "fetch_handshake", boom)
     monkeypatch.setattr(sources, "fetch_coderabbit", lambda session=None: [])
     monkeypatch.setattr(sources, "fetch_zoox", ok)
