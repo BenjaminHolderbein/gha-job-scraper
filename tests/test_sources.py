@@ -77,6 +77,11 @@ def test_ashby_normalizes_fixture():
         assert normalized["url"] == (raw.get("jobUrl") or raw.get("applyUrl") or "")
         assert normalized["posted_at"] == raw.get("publishedAt", "")
 
+    # secondaryLocations are appended so the SF filter sees every office.
+    assert by_id[f"handshake:{payload['jobs'][1]['id']}"]["location"] == (
+        "Remote (USA); San Francisco, CA; New York, NY"
+    )
+
     # Fixture was constructed with exactly one remote and one onsite entry.
     remote_flags = sorted(j["remote"] for j in jobs)
     assert remote_flags == [False, True]

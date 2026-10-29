@@ -1,6 +1,6 @@
 # gha-job-scraper
 
-Scheduled GitHub Actions workflow that watches Handshake's careers board (which also carries Handshake AI roles) and notifies via email and/or mobile push when a new data science role posts, so you can refer a friend for it.
+Scheduled GitHub Actions workflow that watches Handshake's careers board (which also carries Handshake AI roles) and notifies via email and/or mobile push when a new San Francisco data science role posts, so you can refer a friend for it.
 
 ## Sources
 
@@ -16,7 +16,9 @@ See [`scraper/filters.py`](scraper/filters.py). A job matches when:
 - **Title** matches a data science pattern ("Data Scientist", "Data Science ...", any "... Scientist"), **or** the department is in `DEPARTMENT_ALLOW` ("Data Science").
 - **Not a contract/AI-training gig**: the title has no `TITLE_REJECT` token (Contract, Fellow, Trainer, Expert, ...). Handshake AI posts many such roles on the same board, and they aren't referable.
 
-Seniority and location are deliberately not filtered, since a role at any level or office might suit a friend.
+- **Location** mentions a `LOCATION_ALLOW` entry ("San Francisco"). Ashby's secondary office locations are included, so a posting listed as "Remote (USA)" with SF as a second office still matches.
+
+Seniority is deliberately not filtered, since a role at any level might suit a friend.
 
 ## Run locally
 

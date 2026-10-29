@@ -5,13 +5,14 @@ A job dict has the shape:
      "location": str, "remote": bool, "url": str, "posted_at": str}
 
 The scraper runs in *referral-watch* mode: it flags roles worth referring a
-friend to, so there is no seniority or location filtering — any level, any
-office. `matches(job)` returns True iff:
+friend to, so there is no seniority filtering — any level, as long as one of
+the role's offices is in San Francisco. `matches(job)` returns True iff:
   - the company is in TARGET_COMPANIES
   - the title matches a TITLE_PATTERNS regex OR the department is in
     DEPARTMENT_ALLOW
   - the title does NOT contain any TITLE_REJECT token (contract / AI-training
     gigs posted on the same board, which aren't referable full-time roles)
+  - the location mentions a LOCATION_ALLOW entry
 """
 
 from __future__ import annotations
@@ -48,6 +49,12 @@ TITLE_REJECT: list[str] = [
     "Expert",
 ]
 
+# Case-insensitive substrings; a multi-office location ("New York, NY;
+# San Francisco, CA") passes if any office matches.
+LOCATION_ALLOW: list[str] = [
+    "San Francisco",
+]
+
 
 def matches_title(title: str) -> bool:
     """True if the title matches any TITLE_PATTERNS regex."""
@@ -64,6 +71,14 @@ def matches_department(department: str) -> bool:
     return any(a.lower() in d for a in DEPARTMENT_ALLOW)
 
 
+def matches_location(location: str) -> bool:
+    """True if the location contains a LOCATION_ALLOW entry."""
+    if not location:
+        return False
+    loc = location.lower()
+    return any(a.lower() in loc for a in LOCATION_ALLOW)
+
+
 def is_rejected_title(title: str) -> bool:
     """True if the title contains a TITLE_REJECT token (word-boundary match)."""
     if not title:
@@ -74,15 +89,18 @@ def is_rejected_title(title: str) -> bool:
 
 
 def matches(job: dict) -> bool:
-    """True if the job is a referral-worthy data science role at a target company."""
+    """True if the job is a referral-worthy SF data science role at a target company."""
     title = job.get("title", "") or ""
     department = job.get("department", "") or ""
     company = job.get("company", "") or ""
+    location = job.get("location", "") or ""
 
     if company not in TARGET_COMPANIES:
         return False
     if not (matches_title(title) or matches_department(department)):
         return False
     if is_rejected_title(title):
+        return False
+    if not matches_location(location):
         return False
     return True

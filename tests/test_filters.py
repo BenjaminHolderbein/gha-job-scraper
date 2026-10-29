@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from scraper.filters import is_rejected_title, matches, matches_department, matches_title
+from scraper.filters import (
+    is_rejected_title,
+    matches,
+    matches_department,
+    matches_location,
+    matches_title,
+)
 
 
 def _job(
@@ -85,10 +91,32 @@ def test_matches_department() -> None:
     assert matches_department("") is False
 
 
-def test_matches_any_level_and_location() -> None:
+def test_matches_any_level() -> None:
     assert matches(_job(title="Senior Data Scientist")) is True
-    assert matches(_job(title="Data Scientist", location="New York, NY")) is True
-    assert matches(_job(title="Data Scientist", location="London, UK", remote=True)) is True
+    assert matches(_job(title="Data Science Manager")) is True
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "San Francisco, CA",
+        "San Francisco",
+        "New York, NY; San Francisco, CA",
+        "Remote (USA); San Francisco, CA",
+    ],
+)
+def test_matches_location_true(location: str) -> None:
+    assert matches_location(location) is True
+    assert matches(_job(location=location)) is True
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["", "New York, NY", "Remote (USA)", "London, UK", "Palo Alto, CA"],
+)
+def test_matches_location_false(location: str) -> None:
+    assert matches_location(location) is False
+    assert matches(_job(location=location)) is False
 
 
 def test_matches_via_department_only() -> None:

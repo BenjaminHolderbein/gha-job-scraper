@@ -148,6 +148,18 @@ def _get(
     return resp
 
 
+def _ashby_location(job: dict) -> str:
+    """Primary location plus any ``secondaryLocations``, joined with '; '.
+
+    Multi-office postings list extra offices only under secondaryLocations
+    (e.g. primary "Remote (USA)" with "San Francisco, CA" secondary), so the
+    location filter needs to see all of them.
+    """
+    locs = [job.get("location", "") or ""]
+    locs += [s.get("location", "") or "" for s in job.get("secondaryLocations") or []]
+    return "; ".join(dict.fromkeys(l for l in locs if l))
+
+
 def _normalize_ashby(job: dict, *, company: str, id_prefix: str) -> dict:
     """Normalize a raw Ashby posting-API job into the standard shape.
 
@@ -160,7 +172,7 @@ def _normalize_ashby(job: dict, *, company: str, id_prefix: str) -> dict:
         "company": company,
         "title": job.get("title", ""),
         "department": job.get("department", "") or "",
-        "location": job.get("location", "") or "",
+        "location": _ashby_location(job),
         "remote": bool(job.get("isRemote", False)),
         "url": job.get("jobUrl") or job.get("applyUrl") or "",
         "posted_at": job.get("publishedAt", ""),
